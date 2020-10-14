@@ -173,9 +173,9 @@ class SRCycleGAN(object):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         self.real_A = realA
         self.real_B = realB
-        self.fake_B = self.netG_A(self.real_A)  # G_A(A)
+        self.fake_B = self.netG_A(self.real_A)   # G_A(A)
         self.recl_A = self.netG_B(self.fake_B)   # G_B(G_A(A))
-        self.fake_A = self.netG_B(self.real_B)  # G_B(B)
+        self.fake_A = self.netG_B(self.real_B)   # G_B(B)
         self.recl_B = self.netG_A(self.fake_A)   # G_A(G_B(B))
 
     def backward_D_basic(self, netD, real, fake):
