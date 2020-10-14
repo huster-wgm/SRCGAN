@@ -276,7 +276,7 @@ if __name__ == '__main__':
     trainset, valset, testset = load_dataset('Sat2Aerx4')
     print("Starting Training Loop...")
     # For each epoch
-    logger = Logger(opt.num_epochs, len(trainset))
+    logger = Logger(len(trainset), opt.num_epochs)
     for epoch in range(0, opt.num_epochs):
         # setup data loader
         data_loader = DataLoader(trainset, opt.batch_size, num_workers=opt.num_works,
@@ -287,13 +287,16 @@ if __name__ == '__main__':
             model.optimize_parameters(realA, realB)
             ### 可视化 ###
             if idx % 20 == 0:
-                logger.log({'loss_G': model.loss_G.item(), 
+                logger.log(
+                    nepoch=epoch,
+                    niter=idx,
+                    losses={'loss_G': model.loss_G.item(), 
                             'loss_G_identity': 0.0,
                             'loss_G_GAN': (model.loss_G_A.item() + model.loss_G_B.item()),
                             'loss_G_cycle': (model.loss_cycle_A.item() + model.loss_cycle_B.item()),
                             'loss_D': (model.loss_D_A.item() + model.loss_D_B.item())},
-                           images={'real_A': model.real_A, 'real_B': model.real_B,
-                                   'fake_A': model.fake_A, 'fake_B': model.fake_B})
+                    images={'real_A': model.real_A, 'real_B': model.real_B,
+                            'fake_A': model.fake_A, 'fake_B': model.fake_B})
         ### 可视化 ###
         if epoch % 5 == 0:
             torch.save(model.netG_A.state_dict(), './checkpoints/netG_A2B_%04d.pth' % epoch)

@@ -4,67 +4,47 @@ import datetime
 import sys
 
 import torch
+import cv2
 from visdom import Visdom
 import numpy as np
+
+dsize = (256, 256)
 
 def tensor2image(tensor):
     image = tensor[0].cpu().float().numpy()*255
     if image.shape[0] == 1:
         image = np.tile(image, (3,1,1))
-    return image.astype(np.uint8)
+    image = image.astype(np.uint8).transpose((1,2,0))
+    image = cv2.resize(image, dsize=dsize).transpose((2,0,1))
+#     print(image.shape)
+    return image
 
 class Logger():
-    def __init__(self, n_epochs, batches_epoch, interval):
+    def __init__(self, n_iters, n_epochs):
         self.viz = Visdom()
+        self.n_iters = n_iters
         self.n_epochs = n_epochs
-        self.stepes_epoch = batches_epoch
-        self.interval = interval
-        self.epoch = 1
-        self.step = 1
-        self.prev_time = time.time()
-        self.mean_period = 0
-        self.losses = {}
-        self.loss_windows = {}
-        self.image_windows = {}
+        self.init_time = time.time()
 
+    def log(self, nepoch, niter, losses=None, images=None):
+        period = time.time() - self.init_time
+        sys.stdout.write('\n Epoch => %03d/%03d ; Iter => [%04d/%04d]  | ' % 
+                         (nepoch, self.n_epochs, niter, self.n_iters))
+        for k, v in losses.items():
+            sys.stdout.write('%s: %.4f | ' % (k, v))
 
-    def log(self, losses=None, images=None):
-        self.mean_period += (time.time() - self.prev_time)
-        self.prev_time = time.time()
-
-        sys.stdout.write('Epoch %03d/%03d [%04d/%04d] -- \n ' % (self.epoch, self.n_epochs, self.step*self.interval, self.stepes_epoch))
-
-        for i, loss_name in enumerate(losses.keys()):
-            sys.stdout.write('%s: %.4f | ' % (loss_name, self.losses[loss_name]))
-
-        batches_done = self.stepes_epoch*(self.epoch - 1) + self.interval * self.step
-        batches_left = self.stepes_epoch*(self.n_epochs - self.epoch + 1) - self.interval * self.step
-        sys.stdout.write('ETA: %s' % (datetime.timedelta(seconds=batches_left*self.mean_period/batches_done)))
+        iters_done = self.n_iters * (nepoch - 1) + niter
+        iters_left = self.n_iters * self.n_epochs - iters_done
+        sys.stdout.write('ETA: %s' % 
+                         (datetime.timedelta(seconds=iters_left/iters_done*period)))
 
         # Draw images
-        for image_name, tensor in images.items():
-            if image_name not in self.image_windows:
-                self.image_windows[image_name] = self.viz.image(tensor2image(tensor.data), opts={'title':image_name})
-            else:
-                self.viz.image(tensor2image(tensor.data), win=self.image_windows[image_name], opts={'title':image_name})
+        for k, v in images.items():
+            self.viz.image(tensor2image(v.data), 
+                           win = k,
+                           opts = {'title' : k}
+                          )
 
-        # End of epoch
-        if (self.step % self.stepes_epoch) == 0:
-            # Plot losses
-            # for loss_name, loss in self.losses.items():
-            #     # if loss_name not in self.loss_windows:
-            #     #     self.loss_windows[loss_name] = self.viz.line(X=np.array([self.epoch]), Y=np.array([loss/self.step]),
-            #     #                                                     opts={'xlabel': 'epochs', 'ylabel': loss_name, 'title': loss_name})
-            #     # else:
-            #     #     self.viz.line(X=np.array([self.epoch]), Y=np.array([loss/self.step]), win=self.loss_windows[loss_name], update='append')
-            #     # # Reset losses for next epoch
-            #     # self.losses[loss_name] = 0.0
-
-            self.epoch += 1
-            self.step = 1
-            # sys.stdout.write('\n')
-        else:
-            self.step += 1
 
 class VisdomLinePlotter(object):
     """Plots to Visdom"""
