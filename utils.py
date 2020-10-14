@@ -33,7 +33,7 @@ class Logger():
         for k, v in losses.items():
             sys.stdout.write('%s: %.4f | ' % (k, v))
 
-        iters_done = self.n_iters * nepoch + niter
+        iters_done = self.n_iters * nepoch + niter + 1
         iters_left = self.n_iters * self.n_epochs - iters_done
         sys.stdout.write('ETA: %s' % 
                          (datetime.timedelta(seconds=iters_left/iters_done*period)))
