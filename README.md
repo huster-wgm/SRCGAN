@@ -2,7 +2,7 @@
 
 ### A Super-resolution intergrated CyclicGAN for Satellite Imagery Optimization
 
-## DIR
+## Repo. tree 
 ```
 ├── checkpoints
 ├── dataset
