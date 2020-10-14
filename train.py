@@ -174,9 +174,9 @@ class SRCycleGAN(object):
         self.real_A = realA
         self.real_B = realB
         self.fake_B = self.netG_A(self.real_A)  # G_A(A)
-        self.rec_A = self.netG_B(self.fake_B)   # G_B(G_A(A))
+        self.recl_A = self.netG_B(self.fake_B)   # G_B(G_A(A))
         self.fake_A = self.netG_B(self.real_B)  # G_B(B)
-        self.rec_B = self.netG_A(self.fake_A)   # G_A(G_B(B))
+        self.recl_B = self.netG_A(self.fake_A)   # G_A(G_B(B))
 
     def backward_D_basic(self, netD, real, fake):
         """Calculate GAN loss for the discriminator
@@ -230,9 +230,9 @@ class SRCycleGAN(object):
         # GAN loss D_B(G_B(B))
         self.loss_G_B = self.criterionGAN(self.netD_B(self.fake_A), True)
         # Forward cycle loss || G_B(G_A(A)) - A||
-        self.loss_cycle_A = self.criterionCycle(self.rec_A, self.real_A) * lambda_A
+        self.loss_cycle_A = self.criterionCycle(self.recl_A, self.real_A) * lambda_A
         # Backward cycle loss || G_A(G_B(B)) - B||
-        self.loss_cycle_B = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
+        self.loss_cycle_B = self.criterionCycle(self.recl_B, self.real_B) * lambda_B
         # combined loss and calculate gradients
         self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
         self.loss_G.backward()
@@ -296,7 +296,9 @@ if __name__ == '__main__':
                             'loss_G_cycle': (model.loss_cycle_A.item() + model.loss_cycle_B.item()),
                             'loss_D': (model.loss_D_A.item() + model.loss_D_B.item())},
                     images={'real_A': model.real_A, 'real_B': model.real_B,
-                            'fake_A': model.fake_A, 'fake_B': model.fake_B})
+                            'fake_A': model.fake_A, 'fake_B': model.fake_B,
+                            'recl_A': model.recl_A, 'recl_B': model.recl_B,
+                           })
         ### 可视化 ###
         if epoch % 5 == 0:
             torch.save(model.netG_A.state_dict(), './checkpoints/netG_A2B_%04d.pth' % epoch)

@@ -28,7 +28,7 @@ class Logger():
 
     def log(self, nepoch, niter, losses=None, images=None):
         period = time.time() - self.init_time
-        sys.stdout.write('\n Epoch => %03d/%03d ; Iter => [%04d/%04d]  | ' % 
+        sys.stdout.write('\n Epoch => %03d/%03d [%04d/%04d] >> | ' % 
                          (nepoch, self.n_epochs, niter, self.n_iters))
         for k, v in losses.items():
             sys.stdout.write('%s: %.4f | ' % (k, v))
