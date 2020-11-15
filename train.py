@@ -4,7 +4,8 @@ import torchvision
 import torch.nn as nn
 from dataset import load_dataset
 from torch.utils.data import DataLoader
-from SRC64 import RDDBNetA, RDDBNetB, D_LR, D_HR
+from SRC64 import RDDBNetA, RDDBNetB,  不具备尽快吧
+
 import itertools
 import numpy as np
 from utils import Logger
