@@ -196,16 +196,23 @@ class RDDBNetA(nn.Module):
         self.conv_first = nn.Conv2d(in_nc, nf, 3,1,1, bias=True)
         self.RRDB_trunk = make_layer(RRDB_block_f, nb)
         self.trunk_conv = nn.Conv2d(nf, nf,3,1,1, bias=True)
-        self.decode = Decoder()
-        self.conv_last = nn.Conv2d(nf, out_nc,3,1,1,bias=True)
+        # self.decode = Decoder()
+        self.upconv1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.upconv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
+
+        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
+
+        # self.conv_last = nn.Conv2d(nf, out_nc,3,1,1,bias=True)
 
     def forward(self, x):
         fea = self.conv_first(x)
         trunk = self.trunk_conv(self.RRDB_trunk(fea))
         fea = fea + trunk
-        fea = self.decode(fea)
-        out = self.conv_last(fea)
-
+        fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
+        fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
+        out = self.conv_last(self.lrelu(self.HRconv(fea)))
         return out
 
 class RDDBNetB(nn.Module):
@@ -215,15 +222,25 @@ class RDDBNetB(nn.Module):
         self.conv_first = nn.Conv2d(in_nc, nf, 3, 1, 1, bias=True)
         self.RRDB_trunk = make_layer(RRDB_block_f, nb)
         self.trunk_conv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.encode = Encoder()
-        self.conv_last = nn.Conv2d(nf, out_nc,3,1,1,bias=True)
+        # self.encode = Encoder()
+        # self.conv_last = nn.Conv2d(nf, out_nc,3,1,1,bias=True)
+        self.upconv1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.upconv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
+
+        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
+
 
     def forward(self, x):
         fea = self.conv_first(x)
         trunk = self.trunk_conv(self.RRDB_trunk(fea))
         fea = fea + trunk
-        fea = self.encode(fea)
-        out = self.conv_last(fea)
+        # fea = self.encode(fea)
+        # out = self.conv_last(fea)
+        fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        out = self.conv_last(self.lrelu(self.HRconv(fea)))
 
         return out
 
@@ -233,29 +250,28 @@ if __name__ == "__main__":
     x = torch.FloatTensor(np.random.random((1, 3, 256, 256)))
     y = torch.FloatTensor(np.random.random((1, 1, 64, 64)))
     # init pool
-    pool_1, pool_2, pool_3, pool_4, pool_5 = np.zeros(5)
-    pool_6, pool_7, pool_8, pool_9, pool_0 = np.zeros(5)
+
     generatorA = RDDBNetA(3,1,64, nb=1)
     generatorB = RDDBNetB(1,3,64,nb=1)
-    D = Discriminator(y)
 
     genB = generatorA(x)
     rectB = generatorB(genB)
+    print('genB：',genB.size())
+    print('recB：', rectB.size())
     # 还原 pool
     # pool_1, pool_2, pool_3, pool_4, pool_5 = np.zeros(5)
     # pool_6, pool_7, pool_8, pool_9, pool_0 = np.zeros(5)
 
     genA = generatorB(y)
     rectA = generatorA(genA)
-
+    print('genA：', genA.size())
+    print('recA：', rectA.size())
 
     # print("test>:")
     # print(" Network output ", gen_y)
     print(generatorA)
     print(generatorB)
     #print(gobal(pool_1))
-    print(pool_5.shape)
-    print("# #"*20)
-    print(pool_0.shape)
+
     #print(gen_y)
     # print(type(x))

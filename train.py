@@ -2,9 +2,10 @@ import torch
 import random
 import torchvision
 import torch.nn as nn
+import losses
 from dataset import load_dataset
 from torch.utils.data import DataLoader
-from SRC64 import RDDBNetA, RDDBNetB, D_LR, D_HR
+from SRC64 import RDDBNetA, RDDBNetB, NLayerDiscriminator
 import itertools
 import numpy as np
 from utils import Logger
@@ -141,14 +142,14 @@ class SRCycleGAN(object):
         self.netG_A = RDDBNetB(1,3,64, nb=1).to(opt.device)
         self.netG_B = RDDBNetA(3,1,64, nb=1).to(opt.device)
 
-        self.netD_A = D_HR().to(opt.device)
-        self.netD_B = D_LR().to(opt.device)
+        self.netD_A = NLayerDiscriminator(3,64,3).to(opt.device)
+        self.netD_B = NLayerDiscriminator(1,64,3).to(opt.device)
         self.fake_A_pool = ImagePool(opt.pool_size)
         self.fake_B_pool = ImagePool(opt.pool_size)
         # define loss functions
         self.criterionGAN = GANLoss(gan_mode='lsgan', device=opt.device)  # define GAN loss.
-        self.criterionCycle = torch.nn.L1Loss()
-        self.criterionIdt = torch.nn.L1Loss()
+        self.criterionCycle = losses.DSSIMLoss()
+        self.criterionIdt = losses.L1Loss()
         # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
         self.optimizers = []
         self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -173,9 +174,9 @@ class SRCycleGAN(object):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         self.real_A = realA
         self.real_B = realB
-        self.fake_B = self.netG_A(self.real_A)   # G_A(A)
+        self.fake_B = self.netG_A(self.real_A)   # G_A(A) 256
         self.recl_A = self.netG_B(self.fake_B)   # G_B(G_A(A))
-        self.fake_A = self.netG_B(self.real_B)   # G_B(B)
+        self.fake_A = self.netG_B(self.real_B)   # G_B(B) 64
         self.recl_B = self.netG_A(self.fake_A)   # G_A(G_B(B))
 
     def backward_D_basic(self, netD, real, fake):
@@ -216,7 +217,7 @@ class SRCycleGAN(object):
         # Identity loss
         if lambda_idt > 0:
             # G_A should be identity if real_B is fed: ||G_A(B) - B||
-            self.idt_A = self.netG_A(self.real_B)
+            self.idt_A = self.netG_A(self.real_B) # real B 不是64 么， 怎么放进GA 256 - 64 生成器中？
             self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
             # G_B should be identity if real_A is fed: ||G_B(A) - A||
             self.idt_B = self.netG_B(self.real_A)
@@ -247,6 +248,7 @@ class SRCycleGAN(object):
         self.backward_G()             # calculate gradients for G_A and G_B
         self.optimizer_G.step()       # update G_A and G_B's weights
         # D_A and D_B
+
         self.set_requires_grad([self.netD_A, self.netD_B], True)
         self.optimizer_D.zero_grad()   # set D_A and D_B's gradients to zero
         self.backward_D_A()      # calculate gradients for D_A
@@ -256,7 +258,7 @@ class SRCycleGAN(object):
 class params(object):
     def __init__(self):
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.lr = 1e-3
+        self.lr = 1e-4
         self.beta1 = 0.5
         self.batch_size = 1
         self.num_works = 2
