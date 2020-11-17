@@ -2,6 +2,7 @@ import torch
 import random
 import torchvision
 import torch.nn as nn
+from torch.optim import lr_scheduler
 import losses
 from dataset import load_dataset
 from torch.utils.data import DataLoader
@@ -157,6 +158,28 @@ class SRCycleGAN(object):
         self.optimizers.append(self.optimizer_G)
         self.optimizers.append(self.optimizer_D)
 
+    def update_lr(self,opt):
+        for optimizer in self.optimizers:
+            if opt.lr_policy == 'linear':
+                lr_l = 1.0 - max(0, epoch + opt.epoch_count - opt.n_epochs) / float(opt.n_epochs_decay + 1)
+                scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_l)
+                scheduler.step()
+            elif opt.lr_policy == 'step':
+                scheduler = lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
+                scheduler.step()
+            elif opt.lr_policy == 'plateau':
+                scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.2, threshold=0.01,
+                                                           patience=5)
+                scheduler.step(opt.matrix)
+            elif opt.lr_policy == 'cosine':
+                scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=opt.num_epochs, eta_min=0)
+                scheduler.step()
+            else:
+                return NotImplementedError('learning rate policy [%s] is not implemented', opt.lr_policy)
+
+
+
+
     def set_requires_grad(self, nets, requires_grad=False):
         """Set requies_grad=Fasle for all the networks to avoid unnecessary computations
         Parameters:
@@ -258,7 +281,7 @@ class SRCycleGAN(object):
 class params(object):
     def __init__(self):
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.lr = 1e-4
+        self.lr = 1e-5
         self.beta1 = 0.5
         self.batch_size = 1
         self.num_works = 2
@@ -267,7 +290,9 @@ class params(object):
         self.lambda_identity = 0
         self.lambda_A = 10
         self.lambda_B = 10
-        
+        self.n_epochs_decay=100
+        self.matrix=0
+        self.lr_policy='cosine'
         
 if __name__ == '__main__':
     # Hyperparameters
@@ -283,6 +308,7 @@ if __name__ == '__main__':
         # setup data loader
         data_loader = DataLoader(trainset, opt.batch_size, num_workers=opt.num_works,
                                  shuffle=True, pin_memory=True,)
+        model.update_lr(opt)
         for idx, sample in enumerate(data_loader):
             realA = sample['src'].to(opt.device)
             realB = sample['tar'].to(opt.device)
