@@ -6,7 +6,7 @@ from torch.optim import lr_scheduler
 import losses
 from dataset import load_dataset
 from torch.utils.data import DataLoader
-from SRC64 import RDDBNetA, RDDBNetB, NLayerDiscriminator
+from model import RDDBNetA, RDDBNetB, NLayerDiscriminator
 import itertools
 import numpy as np
 from utils import Logger
@@ -154,8 +154,8 @@ class SRCycleGAN(object):
         # define networks (both Generators and discriminators)
         # The naming is different from those used in the paper.
         # Code (vs. paper): G_A (G), G_B (F), D_A (D_Y), D_B (D_X)
-        self.netG_A = RDDBNetB(1,3,64, nb=1).to(opt.device)
-        self.netG_B = RDDBNetA(3,1,64, nb=1).to(opt.device)
+        self.netG_A = RDDBNetB(1,3,64, nb=1, mode=opt.mode).to(opt.device)
+        self.netG_B = RDDBNetA(3,1,64, nb=1, mode=opt.mode).to(opt.device)
 
         self.netD_A = NLayerDiscriminator(3,64,3).to(opt.device)
         self.netD_B = NLayerDiscriminator(1,64,3).to(opt.device)
@@ -308,14 +308,16 @@ class params(object):
         self.n_epochs_decay=100
         self.matrix=0
         self.lr_policy='cosine'
+	self.mode = 'x2'
         
+
 if __name__ == '__main__':
     # Hyperparameters
     opt = params()
     ### Build model
     model = SRCycleGAN(opt)
     ### Data preparation
-    trainset, valset, testset = load_dataset('Sat2Aerx4')
+    trainset, valset, testset = load_dataset('Sat2Aer{}'.format(opt.mode))
     print("Starting Training Loop...")
     # For each epoch
     logger = Logger(len(trainset), opt.num_epochs)
@@ -344,8 +346,8 @@ if __name__ == '__main__':
                            })
         ### 可视化 ###
         if (epoch+1) % 5 == 0:
-            netGA = './checkpoints/netG_A2B_DSSIM2_%04d.pth' % epoch+1
-            netGB = './checkpoints/netG_B2A_DSSIM2_%04d.pth' % epoch+1
+            netGA = './checkpoints/netG_A2B_%s_DSSIM2_%04d.pth' % (opt.mode, epoch+1)
+            netGB = './checkpoints/netG_B2A_%s_DSSIM2_%04d.pth' % (opt.mode, epoch+1)
             torch.save(model.netG_A.state_dict(), netGA)
             torch.save(model.netG_B.state_dict(), netGB)
             import os
