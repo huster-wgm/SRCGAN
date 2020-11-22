@@ -82,6 +82,8 @@ class GANLoss(nn.Module):
             self.loss = nn.BCEWithLogitsLoss()
         elif gan_mode in ['wgangp']:
             self.loss = None
+        elif gan_mode in ['DSSIM']:
+            self.loss = losses.DSSIMLoss()
         else:
             raise NotImplementedError('gan mode %s not implemented' % gan_mode)
 
@@ -108,7 +110,7 @@ class GANLoss(nn.Module):
         Returns:
             the calculated loss.
         """
-        if self.gan_mode in ['lsgan', 'vanilla']:
+        if self.gan_mode in ['lsgan', 'vanilla','DSSIM']:
             target_tensor = self.get_target_tensor(prediction, target_is_real)
             loss = self.loss(prediction, target_tensor)
         elif self.gan_mode == 'wgangp':
@@ -118,6 +120,18 @@ class GANLoss(nn.Module):
                 loss = prediction.mean()
         return loss
 
+class MultiTaskLoss(nn.Module):
+    def __init__(self, tasks):
+        super(MultiTaskLoss, self).__init__()
+        self.tasks = nn.ModuleList(tasks)
+        self.sigma = nn.Parameter(torch.ones(len(tasks)))
+        self.mse = nn.MSELoss()
+
+    def forward(self, x, targets):
+       l = [self.mse(f(x), y) for y, f in zip(targets, self.tasks)]
+       l = 0.5 * torch.Tensor(l) / self.sigma**2
+       l = l.sum() + torch.log(self.sigma.prod())
+       return l
 
 class SRCycleGAN(object):
     """
@@ -148,8 +162,8 @@ class SRCycleGAN(object):
         self.fake_A_pool = ImagePool(opt.pool_size)
         self.fake_B_pool = ImagePool(opt.pool_size)
         # define loss functions
-        self.criterionGAN = GANLoss(gan_mode='lsgan', device=opt.device)  # define GAN loss.
-        self.criterionCycle = losses.DSSIMLoss()
+        self.criterionGAN = GANLoss(gan_mode='DSSIM', device=opt.device)  # define GAN loss.
+        self.criterionCycle = losses.L1Loss()
         self.criterionIdt = losses.L1Loss()
         # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
         self.optimizers = []
@@ -258,7 +272,8 @@ class SRCycleGAN(object):
         # Backward cycle loss || G_A(G_B(B)) - B||
         self.loss_cycle_B = self.criterionCycle(self.recl_B, self.real_B) * lambda_B
         # combined loss and calculate gradients
-        self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
+        self.loss_G = 100*self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
+
         self.loss_G.backward()
 
     def optimize_parameters(self, realA, realB):
@@ -281,7 +296,7 @@ class SRCycleGAN(object):
 class params(object):
     def __init__(self):
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.lr = 1e-5
+        self.lr = 1e-4
         self.beta1 = 0.5
         self.batch_size = 1
         self.num_works = 2
@@ -328,7 +343,11 @@ if __name__ == '__main__':
                             'recl_A': model.recl_A, 'recl_B': model.recl_B,
                            })
         ### 可视化 ###
-        if epoch % 5 == 0:
-            torch.save(model.netG_A.state_dict(), './checkpoints/netG_A2B_%04d.pth' % epoch)
-            torch.save(model.netG_B.state_dict(), './checkpoints/netG_B2A_%04d.pth' % epoch)
+        if (epoch+1) % 5 == 0:
+            netGA = './checkpoints/netG_A2B_DSSIM2_%04d.pth' % epoch+1
+            netGB = './checkpoints/netG_B2A_DSSIM2_%04d.pth' % epoch+1
+            torch.save(model.netG_A.state_dict(), netGA)
+            torch.save(model.netG_B.state_dict(), netGB)
+            import os
+            os.system('python test.py --netGA {} --netGB {}'.format(netGA, netGB))
 

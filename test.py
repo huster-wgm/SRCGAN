@@ -1,17 +1,20 @@
 import os
 import sys
 
+import cv2
 import torch
 import random
 import torchvision
 import torch.nn as nn
+from pandas import np
+import argparse
 from torch.optim import lr_scheduler
 import losses
 from dataset import load_dataset
 from torch.utils.data import DataLoader
 from SRC64 import RDDBNetA, RDDBNetB, NLayerDiscriminator
 import itertools
-import numpy as np
+from skimage.io import imsave
 from utils import Logger
 
 
@@ -33,7 +36,19 @@ class params(object):
         self.lr_policy = 'cosine'
 
 
+def tensor2image(tensor):
+    image = tensor.detach()[0].cpu().float().numpy()*255
+    if image.shape[0] == 1:
+        image = np.tile(image, (3,1,1))
+    image = image.astype(np.uint8).transpose((1,2,0))
+#     print(image.shape)
+    return image
+
 if __name__ == '__main__':
+    parse =  argparse.ArgumentParser()
+    parse.add_argument('--netGA', type=str)
+    parse.add_argument('--netGB', type=str)
+    args = parse.parse_args()
     # Hyperparameters
     opt = params()
     ### Build model
@@ -42,17 +57,18 @@ if __name__ == '__main__':
     netG_B2A = RDDBNetA(3, 1, 64, nb=1).to(opt.device)
 
     # load check point
-    checkpoint = torch.load('./checkpoints/netG_A2B_0000.pth')
+    checkpoint = torch.load(args.netGA)
     netG_A2B.load_state_dict(checkpoint)
-    checkpoint = torch.load('./checkpoints/netG_B2A_0010.pth')
+    checkpoint = torch.load(args.netGB)
     netG_B2A.load_state_dict(checkpoint)
     netG_A2B.eval()
     netG_B2A.eval()
-
-    if not os.path.exists('result/B_A_64'):
-        os.makedirs('result/B_A_64')
-    if not os.path.exists('result/A_B_64'):
-        os.makedirs('result/A_B_64')
+    checkA = os.basename(args.netGA).split('.pth')[0]
+    checkB = os.basename(args.netGB).split('.pth')[0]
+    if not os.path.exists('result/'+checkA):
+        os.makedirs('result/'+checkA)
+    if not os.path.exists('result/'+checkB):
+        os.makedirs('result/'+checkB)
 
     ### Data preparation
     trainset, valset, testset = load_dataset('Sat2Aerx4')
@@ -67,6 +83,6 @@ if __name__ == '__main__':
         realB = sample['tar'].to(opt.device)
         fake_B = netG_A2B(realA)
         fake_A = netG_B2A(realB)
-        torchvision.utils.save_image(fake_A, 'result/B_A_64/test_00%04d.png' % (idx))
-        torchvision.utils.save_image(fake_B, 'result/A_B_64/test_00%04d.png' % (idx))
+        imsave('result/'+checkA+'/test_00%04d.png' % (idx), tensor2image(fake_A))
+        imsave('result/'+checkB+'/test_00%04d.png' % (idx), tensor2image(fake_B))
         sys.stdout.write('\rGenerated images %04d of %04d' % (idx, len(data_loader)))
