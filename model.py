@@ -168,7 +168,7 @@ class Encoder(nn.Module):
 
 
 class RDDBNetA(nn.Module):
-    def __init__(self,in_nc, out_nc, nf, nb=2, gc = 32):
+    def __init__(self,in_nc, out_nc, nf, nb=2, gc = 32, mode='x2'):
         super(RDDBNetA, self).__init__()
         RRDB_block_f = functools.partial(RRDB, nf=nf, gc=gc)
 
@@ -178,6 +178,7 @@ class RDDBNetA(nn.Module):
         self.upconv1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.upconv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.mode = mode
         self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
 
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
@@ -203,14 +204,15 @@ class RDDBNetA(nn.Module):
         trunk = self.trunk_conv(self.RRDB_trunk(fea))
         fea = fea + trunk
         fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
-        fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
+        if self.mode == 'x4':
+            fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
         out = self.conv_last(self.lrelu(self.HRconv(fea)))
         return out
 
 
 
 class RDDBNetB(nn.Module):
-    def __init__(self, in_nc, out_nc, nf, nb=2, gc=32):
+    def __init__(self, in_nc, out_nc, nf, nb=2, gc=32, mode='x2'):
         super(RDDBNetB, self).__init__()
         RRDB_block_f = functools.partial(RRDB, nf=nf, gc=gc)
         self.conv_first = nn.Conv2d(in_nc, nf, 3, 1, 1, bias=True)
@@ -219,6 +221,7 @@ class RDDBNetB(nn.Module):
         self.upconv1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.upconv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.mode = mode
         self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
 
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
@@ -236,9 +239,9 @@ class RDDBNetB(nn.Module):
         # fea = self.encode(fea)
         # out = self.conv_last(fea)
         fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=2, mode='nearest')))
-        fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        if self.mode == 'x4':
+            fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=2, mode='nearest')))
         out = self.conv_last(self.lrelu(self.HRconv(fea)))
-
         return out
 
 
@@ -449,8 +452,8 @@ if __name__ == "__main__":
 
     print(x1.shape)
 
-    generatorA = RDDBNetA(3,1,64,nb=1)
-    generatorB = RDDBNetB(1,3,64,nb=1)
+    generatorA = RDDBNetA(3,1,64,nb=1,mode='x2')
+    generatorB = RDDBNetB(1,3,64,nb=1,mode='x2')
 
     genB = generatorA(x)
     rectB = generatorB(genB)

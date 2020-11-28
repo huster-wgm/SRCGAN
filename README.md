@@ -2,7 +2,7 @@
 
 ### A Super-resolution intergrated CyclicGAN for Satellite Imagery Optimization
 
-## Repo. tree 
+## Repo.
 ```
 ├── checkpoints
 ├── dataset
@@ -23,8 +23,7 @@
 ├── dataset.py
 ├── RDDBnet.py
 ├── README.md
-├── SRC128.py
-├── SRC64.py
+├── model.py
 ├── train.py
 └── utils.py
 ```
