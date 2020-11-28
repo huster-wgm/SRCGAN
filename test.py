@@ -86,3 +86,4 @@ if __name__ == '__main__':
         imsave('result/'+checkA+'/test_00%04d.png' % (idx), tensor2image(fake_A))
         imsave('result/'+checkB+'/test_00%04d.png' % (idx), tensor2image(fake_B))
         sys.stdout.write('\rGenerated images %04d of %04d' % (idx, len(data_loader)))
+
