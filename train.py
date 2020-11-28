@@ -10,6 +10,7 @@ from SRC64 import RDDBNetA, RDDBNetB, NLayerDiscriminator
 import itertools
 import numpy as np
 from utils import Logger
+import torch.nn.functional as F
 
 class ImagePool():
     """This class implements an image buffer that stores previously generated images.
@@ -254,11 +255,16 @@ class SRCycleGAN(object):
         # Identity loss
         if lambda_idt > 0:
             # G_A should be identity if real_B is fed: ||G_A(B) - B||
-            self.idt_A = self.netG_A(self.real_B) # real B 不是64 么， 怎么放进GA 256 - 64 生成器中？
-            self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
+            self.weight = torch.FloatTensor(1, 3, 1, 1).to(opt.device)
+            self.real_B1 = F.max_pool2d(self.real_B,3,4,padding=0, dilation=1, ceil_mode=False, return_indices=False)
+            self.real_B1 = F.conv2d(self.real_B1, self.weight, bias=None, stride=1)  # nc3 to nc 1
+            self.real_A3 = F.interpolate(self.real_A, scale_factor=4)
+            self.real_A3 = torch.cat([self.real_A3, self.real_A3, self.real_A3], dim=1)
+            self.idt_A = self.netG_A(self.real_B1)
+            self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B/2 * lambda_idt
             # G_B should be identity if real_A is fed: ||G_B(A) - A||
-            self.idt_B = self.netG_B(self.real_A)
-            self.loss_idt_B = self.criterionIdt(self.idt_B, self.real_A) * lambda_A * lambda_idt
+            self.idt_B = self.netG_B(self.real_A3)
+            self.loss_idt_B = self.criterionIdt(self.idt_B, self.real_A) * lambda_A/2 * lambda_idt
         else:
             self.loss_idt_A = 0
             self.loss_idt_B = 0
@@ -272,7 +278,7 @@ class SRCycleGAN(object):
         # Backward cycle loss || G_A(G_B(B)) - B||
         self.loss_cycle_B = self.criterionCycle(self.recl_B, self.real_B) * lambda_B
         # combined loss and calculate gradients
-        self.loss_G = 100*self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
+        self.loss_G = 20*(self.loss_G_A + self.loss_G_B) + 15*self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
 
         self.loss_G.backward()
 
@@ -308,7 +314,7 @@ class params(object):
         self.n_epochs_decay=100
         self.matrix=0
         self.lr_policy='cosine'
-        
+
 if __name__ == '__main__':
     # Hyperparameters
     opt = params()
@@ -333,8 +339,8 @@ if __name__ == '__main__':
                 logger.log(
                     nepoch=epoch,
                     niter=idx,
-                    losses={'loss_G': model.loss_G.item(), 
-                            'loss_G_identity': 0.0,
+                    losses={'loss_G': model.loss_G.item(),
+                            'loss_G_identity': model.loss_idt_A+model.loss_idt_B,
                             'loss_G_GAN': (model.loss_G_A.item() + model.loss_G_B.item()),
                             'loss_G_cycle': (model.loss_cycle_A.item() + model.loss_cycle_B.item()),
                             'loss_D': (model.loss_D_A.item() + model.loss_D_B.item())},
@@ -344,8 +350,8 @@ if __name__ == '__main__':
                            })
         ### 可视化 ###
         if (epoch+1) % 5 == 0:
-            netGA = './checkpoints/netG_A2B_DSSIM2_%04d.pth' % epoch+1
-            netGB = './checkpoints/netG_B2A_DSSIM2_%04d.pth' % epoch+1
+            netGA = './checkpoints/netG_A2B_DSSIM_idt_%04d.pth' % (epoch+1)
+            netGB = './checkpoints/netG_B2A_DSSIM_idt_%04d.pth' % (epoch+1)
             torch.save(model.netG_A.state_dict(), netGA)
             torch.save(model.netG_B.state_dict(), netGB)
             import os
