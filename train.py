@@ -6,10 +6,12 @@ from torch.optim import lr_scheduler
 import losses
 from dataset import load_dataset
 from torch.utils.data import DataLoader
-from model import RDDBNetA, RDDBNetB, NLayerDiscriminator
+import torch.nn.functional as F
+from Net import RDDBNetA, RDDBNetB, NLayerDiscriminator
 import itertools
 import numpy as np
 from utils import Logger
+
 
 class ImagePool():
     """This class implements an image buffer that stores previously generated images.
@@ -41,7 +43,7 @@ class ImagePool():
         return_images = []
         for image in images:
             image = torch.unsqueeze(image.data, 0)
-            if self.num_imgs < self.pool_size:   # if the buffer is not full; keep inserting current images to the buffer
+            if self.num_imgs < self.pool_size:  # if the buffer is not full; keep inserting current images to the buffer
                 self.num_imgs = self.num_imgs + 1
                 self.images.append(image)
                 return_images.append(image)
@@ -52,10 +54,11 @@ class ImagePool():
                     tmp = self.images[random_id].clone()
                     self.images[random_id] = image
                     return_images.append(tmp)
-                else:       # by another 50% chance, the buffer will return the current image
+                else:  # by another 50% chance, the buffer will return the current image
                     return_images.append(image)
-        return_images = torch.cat(return_images, 0)   # collect all the images and return
+        return_images = torch.cat(return_images, 0)  # collect all the images and return
         return return_images
+
 
 class GANLoss(nn.Module):
     """Define different GAN objectives.
@@ -110,7 +113,7 @@ class GANLoss(nn.Module):
         Returns:
             the calculated loss.
         """
-        if self.gan_mode in ['lsgan', 'vanilla','DSSIM']:
+        if self.gan_mode in ['lsgan', 'vanilla', 'DSSIM']:
             target_tensor = self.get_target_tensor(prediction, target_is_real)
             loss = self.loss(prediction, target_tensor)
         elif self.gan_mode == 'wgangp':
@@ -120,6 +123,7 @@ class GANLoss(nn.Module):
                 loss = prediction.mean()
         return loss
 
+
 class MultiTaskLoss(nn.Module):
     def __init__(self, tasks):
         super(MultiTaskLoss, self).__init__()
@@ -128,10 +132,11 @@ class MultiTaskLoss(nn.Module):
         self.mse = nn.MSELoss()
 
     def forward(self, x, targets):
-       l = [self.mse(f(x), y) for y, f in zip(targets, self.tasks)]
-       l = 0.5 * torch.Tensor(l) / self.sigma**2
-       l = l.sum() + torch.log(self.sigma.prod())
-       return l
+        l = [self.mse(f(x), y) for y, f in zip(targets, self.tasks)]
+        l = 0.5 * torch.Tensor(l) / self.sigma ** 2
+        l = l.sum() + torch.log(self.sigma.prod())
+        return l
+
 
 class SRCycleGAN(object):
     """
@@ -154,11 +159,11 @@ class SRCycleGAN(object):
         # define networks (both Generators and discriminators)
         # The naming is different from those used in the paper.
         # Code (vs. paper): G_A (G), G_B (F), D_A (D_Y), D_B (D_X)
-        self.netG_A = RDDBNetB(1,3,64, nb=1, mode=opt.mode).to(opt.device)
-        self.netG_B = RDDBNetA(3,1,64, nb=1, mode=opt.mode).to(opt.device)
+        self.netG_A = RDDBNetB(1, 3, 64, nb=1, mode=opt.mode).to(opt.device)
+        self.netG_B = RDDBNetA(3, 1, 64, nb=1, mode=opt.mode).to(opt.device)
 
-        self.netD_A = NLayerDiscriminator(3,64,3).to(opt.device)
-        self.netD_B = NLayerDiscriminator(1,64,3).to(opt.device)
+        self.netD_A = NLayerDiscriminator(3, 64, 3).to(opt.device)
+        self.netD_B = NLayerDiscriminator(1, 64, 3).to(opt.device)
         self.fake_A_pool = ImagePool(opt.pool_size)
         self.fake_B_pool = ImagePool(opt.pool_size)
         # define loss functions
@@ -167,12 +172,14 @@ class SRCycleGAN(object):
         self.criterionIdt = losses.L1Loss()
         # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
         self.optimizers = []
-        self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
-        self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
+        self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()),
+                                            lr=opt.lr, betas=(opt.beta1, 0.999))
+        self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()),
+                                            lr=opt.lr, betas=(opt.beta1, 0.999))
         self.optimizers.append(self.optimizer_G)
         self.optimizers.append(self.optimizer_D)
 
-    def update_lr(self,opt):
+    def update_lr(self, opt):
         for optimizer in self.optimizers:
             if opt.lr_policy == 'linear':
                 lr_l = 1.0 - max(0, epoch + opt.epoch_count - opt.n_epochs) / float(opt.n_epochs_decay + 1)
@@ -191,9 +198,6 @@ class SRCycleGAN(object):
             else:
                 return NotImplementedError('learning rate policy [%s] is not implemented', opt.lr_policy)
 
-
-
-
     def set_requires_grad(self, nets, requires_grad=False):
         """Set requies_grad=Fasle for all the networks to avoid unnecessary computations
         Parameters:
@@ -211,10 +215,10 @@ class SRCycleGAN(object):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         self.real_A = realA
         self.real_B = realB
-        self.fake_B = self.netG_A(self.real_A)   # G_A(A) 256
-        self.recl_A = self.netG_B(self.fake_B)   # G_B(G_A(A))
-        self.fake_A = self.netG_B(self.real_B)   # G_B(B) 64
-        self.recl_B = self.netG_A(self.fake_A)   # G_A(G_B(B))
+        self.fake_B = self.netG_A(self.real_A)  # G_A(A) 256
+        self.recl_A = self.netG_B(self.fake_B)  # G_B(G_A(A))
+        self.fake_A = self.netG_B(self.real_B)  # G_B(B) 64
+        self.recl_B = self.netG_A(self.fake_A)  # G_A(G_B(B))
 
     def backward_D_basic(self, netD, real, fake):
         """Calculate GAN loss for the discriminator
@@ -254,11 +258,16 @@ class SRCycleGAN(object):
         # Identity loss
         if lambda_idt > 0:
             # G_A should be identity if real_B is fed: ||G_A(B) - B||
-            self.idt_A = self.netG_A(self.real_B) # real B 不是64 么， 怎么放进GA 256 - 64 生成器中？
-            self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
+            self.weight = torch.FloatTensor(1, 3, 1, 1).to(opt.device)
+            self.real_B1 = F.max_pool2d(self.real_B, 3, 4, padding=0, dilation=1, ceil_mode=False, return_indices=False)
+            self.real_B1 = F.conv2d(self.real_B1, self.weight, bias=None, stride=1)  # nc3 to nc 1
+            self.real_A3 = F.interpolate(self.real_A, scale_factor=4)
+            self.real_A3 = torch.cat([self.real_A3, self.real_A3, self.real_A3], dim=1)
+            self.idt_A = self.netG_A(self.real_B1)
+            self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B / 2 * lambda_idt
             # G_B should be identity if real_A is fed: ||G_B(A) - A||
-            self.idt_B = self.netG_B(self.real_A)
-            self.loss_idt_B = self.criterionIdt(self.idt_B, self.real_A) * lambda_A * lambda_idt
+            self.idt_B = self.netG_B(self.real_A3)
+            self.loss_idt_B = self.criterionIdt(self.idt_B, self.real_A) * lambda_A / 2 * lambda_idt
         else:
             self.loss_idt_A = 0
             self.loss_idt_B = 0
@@ -272,26 +281,27 @@ class SRCycleGAN(object):
         # Backward cycle loss || G_A(G_B(B)) - B||
         self.loss_cycle_B = self.criterionCycle(self.recl_B, self.real_B) * lambda_B
         # combined loss and calculate gradients
-        self.loss_G = 100*self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
+        self.loss_G = 100 * self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
 
         self.loss_G.backward()
 
     def optimize_parameters(self, realA, realB):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
         # forward
-        self.forward(realA, realB)      # compute fake images and reconstruction images.
+        self.forward(realA, realB)  # compute fake images and reconstruction images.
         # G_A and G_B
         self.set_requires_grad([self.netD_A, self.netD_B], False)  # Ds require no gradients when optimizing Gs
         self.optimizer_G.zero_grad()  # set G_A and G_B's gradients to zero
-        self.backward_G()             # calculate gradients for G_A and G_B
-        self.optimizer_G.step()       # update G_A and G_B's weights
+        self.backward_G()  # calculate gradients for G_A and G_B
+        self.optimizer_G.step()  # update G_A and G_B's weights
         # D_A and D_B
 
         self.set_requires_grad([self.netD_A, self.netD_B], True)
-        self.optimizer_D.zero_grad()   # set D_A and D_B's gradients to zero
-        self.backward_D_A()      # calculate gradients for D_A
-        self.backward_D_B()      # calculate graidents for D_B
+        self.optimizer_D.zero_grad()  # set D_A and D_B's gradients to zero
+        self.backward_D_A()  # calculate gradients for D_A
+        self.backward_D_B()  # calculate graidents for D_B
         self.optimizer_D.step()  # update D_A and D_B's weights
+
 
 class params(object):
     def __init__(self):
@@ -302,14 +312,14 @@ class params(object):
         self.num_works = 2
         self.num_epochs = 25
         self.pool_size = 4
-        self.lambda_identity = 0
+        self.lambda_identity = 1
         self.lambda_A = 10
         self.lambda_B = 10
-        self.n_epochs_decay=100
-        self.matrix=0
-        self.lr_policy='cosine'
-	self.mode = 'x2'
-        
+        self.n_epochs_decay = 100
+        self.matrix = 0
+        self.lr_policy = 'cosine'
+        self.mode = 'x4'
+
 
 if __name__ == '__main__':
     # Hyperparameters
@@ -324,7 +334,7 @@ if __name__ == '__main__':
     for epoch in range(0, opt.num_epochs):
         # setup data loader
         data_loader = DataLoader(trainset, opt.batch_size, num_workers=opt.num_works,
-                                 shuffle=True, pin_memory=True,)
+                                 shuffle=True, pin_memory=True, )
         model.update_lr(opt)
         for idx, sample in enumerate(data_loader):
             realA = sample['src'].to(opt.device)
@@ -335,21 +345,20 @@ if __name__ == '__main__':
                 logger.log(
                     nepoch=epoch,
                     niter=idx,
-                    losses={'loss_G': model.loss_G.item(), 
-                            'loss_G_identity': 0.0,
+                    losses={'loss_G': model.loss_G.item(),
+                            'loss_G_identity': model.loss_idt_A+ model.loss_idt_B,
                             'loss_G_GAN': (model.loss_G_A.item() + model.loss_G_B.item()),
                             'loss_G_cycle': (model.loss_cycle_A.item() + model.loss_cycle_B.item()),
                             'loss_D': (model.loss_D_A.item() + model.loss_D_B.item())},
                     images={'real_A': model.real_A, 'real_B': model.real_B,
                             'fake_A': model.fake_A, 'fake_B': model.fake_B,
                             'recl_A': model.recl_A, 'recl_B': model.recl_B,
-                           })
+                            })
         ### 可视化 ###
-        if (epoch+1) % 5 == 0:
-            netGA = './checkpoints/netG_A2B_%s_DSSIM2_%04d.pth' % (opt.mode, epoch+1)
-            netGB = './checkpoints/netG_B2A_%s_DSSIM2_%04d.pth' % (opt.mode, epoch+1)
+        if (epoch + 1) % 5 == 0:
+            netGA = './checkpoints/netG_A2B_%s_DSSIM2_%04d.pth' % (opt.mode, epoch + 1)
+            netGB = './checkpoints/netG_B2A_%s_DSSIM2_%04d.pth' % (opt.mode, epoch + 1)
             torch.save(model.netG_A.state_dict(), netGA)
             torch.save(model.netG_B.state_dict(), netGB)
             import os
             os.system('python test.py --netGA {} --netGB {}'.format(netGA, netGB))
-
