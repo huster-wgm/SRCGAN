@@ -63,8 +63,8 @@ if __name__ == '__main__':
     netG_B2A.load_state_dict(checkpoint)
     netG_A2B.eval()
     netG_B2A.eval()
-    checkA = os.basename(args.netGA).split('.pth')[0]
-    checkB = os.basename(args.netGB).split('.pth')[0]
+    checkA = os.path.basename(args.netGA).split('.pth')[0]
+    checkB = os.path.basename(args.netGB).split('.pth')[0]
     if not os.path.exists('result/'+checkA):
         os.makedirs('result/'+checkA)
     if not os.path.exists('result/'+checkB):
