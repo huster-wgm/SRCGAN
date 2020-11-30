@@ -168,15 +168,20 @@ class Encoder(nn.Module):
 
 
 class RDDBNetA(nn.Module):
-    def __init__(self,in_nc, out_nc, nf, nb=2, gc = 32):
+    def __init__(self,in_nc, out_nc, nf, nb=2, gc = 32, mode='x2'):
         super(RDDBNetA, self).__init__()
         RRDB_block_f = functools.partial(RRDB, nf=nf, gc=gc)
 
         self.conv_first = nn.Conv2d(in_nc, nf, 3,1,1, bias=True)
         self.RRDB_trunk = make_layer(RRDB_block_f, nb)
         self.trunk_conv = nn.Conv2d(nf, nf,3,1,1, bias=True)
-        self.decode = Decoder()
-        self.conv_last = nn.Conv2d(nf, out_nc,3,1,1,bias=True)
+        self.upconv1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.upconv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.mode = mode
+        self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
+
+        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -185,26 +190,41 @@ class RDDBNetA(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
+    # def forward(self, x):
+    #     # fea = self.conv_first(x)
+    #     # trunk = self.trunk_conv(self.RRDB_trunk(fea))
+    #     # fea = fea + trunk
+    #     # fea = self.decode(fea)
+    #     #
+    #     # out = self.conv_last(fea)
+    #     #
+    #     # return out
     def forward(self, x):
         fea = self.conv_first(x)
         trunk = self.trunk_conv(self.RRDB_trunk(fea))
         fea = fea + trunk
-        fea = self.decode(fea)
-
-        out = self.conv_last(fea)
-
+        fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
+        if self.mode == 'x4':
+            fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
+        out = self.conv_last(self.lrelu(self.HRconv(fea)))
         return out
 
 
+
 class RDDBNetB(nn.Module):
-    def __init__(self, in_nc, out_nc, nf, nb=2, gc=32):
+    def __init__(self, in_nc, out_nc, nf, nb=2, gc=32, mode='x2'):
         super(RDDBNetB, self).__init__()
         RRDB_block_f = functools.partial(RRDB, nf=nf, gc=gc)
         self.conv_first = nn.Conv2d(in_nc, nf, 3, 1, 1, bias=True)
         self.RRDB_trunk = make_layer(RRDB_block_f, nb)
         self.trunk_conv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.encode = Encoder()
-        self.conv_last = nn.Conv2d(nf, out_nc,3,1,1,bias=True)
+        self.upconv1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.upconv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.mode = mode
+        self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
+
+        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -216,11 +236,14 @@ class RDDBNetB(nn.Module):
         fea = self.conv_first(x)
         trunk = self.trunk_conv(self.RRDB_trunk(fea))
         fea = fea + trunk
-        fea = self.encode(fea)
-        # print(type(fea))
-        out = self.conv_last(fea)
-
+        # fea = self.encode(fea)
+        # out = self.conv_last(fea)
+        fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        if self.mode == 'x4':
+            fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        out = self.conv_last(self.lrelu(self.HRconv(fea)))
         return out
+
 
 # class Discriminator(nn.Module):
 #     def __init__(self, in_nc, nf = 64):
@@ -299,79 +322,126 @@ class RDDBNetB(nn.Module):
 #         out = self.sigmoid(x)
 #
 #         return out
-class D_LR(nn.Module):
-    def __init__(self, nc=1,ndf=64):
-        super(D_LR, self).__init__()
-        self.ngpu = ngpu
-        self.main = nn.Sequential(
-            # input is (nc) x 64 x 64
-            nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf) x 32 x 32
-            nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 2),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf*2) x 16 x 16
-            nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf*4) x 8 x 8
-            nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 8),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf*8) x 4 x 4
-            nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False),
-            nn.Sigmoid()
-        )
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
+# class D_LR(nn.Module):
+#     def __init__(self, nc=1,ndf=64):
+#         super(D_LR, self).__init__()
+#         self.ngpu = ngpu
+#         self.main = nn.Sequential(
+#             # input is (nc) x 64 x 64
+#             nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             # state size. (ndf) x 32 x 32
+#             nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
+#             nn.BatchNorm2d(ndf * 2),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             # state size. (ndf*2) x 16 x 16
+#             nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
+#             nn.BatchNorm2d(ndf * 4),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             # state size. (ndf*4) x 8 x 8
+#             nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False),
+#             nn.BatchNorm2d(ndf * 8),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             # state size. (ndf*8) x 4 x 4
+#             nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False),
+#             nn.Sigmoid()
+#         )
+#         for m in self.modules():
+#             if isinstance(m, nn.Conv2d):
+#                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+#             elif isinstance(m, nn.BatchNorm2d):
+#                 nn.init.constant_(m.weight, 1)
+#                 nn.init.constant_(m.bias, 0)
+#
+#     def forward(self, input):
+#         return self.main(input)[:,0,0,0]
+#
+# class D_HR(nn.Module):
+#     def __init__(self,nc=3,ndf=64):
+#         super(D_HR, self).__init__()
+#         self.main = nn.Sequential(
+#             # input is (nc) x 256 x 256
+#             nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             # state size. (ndf) x 128 x 128
+#             nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
+#             nn.BatchNorm2d(ndf * 2),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             # state size. (ndf*2) x 64 x 64
+#             nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
+#             nn.BatchNorm2d(ndf * 4),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             # state size. (ndf*4) x 32 x 32
+#             nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False),
+#             nn.BatchNorm2d(ndf * 8),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             # state size. (ndf*8) x 16 x 16
+#             nn.Conv2d(ndf * 8, ndf * 16, 4, 2, 1, bias=False),
+#             nn.BatchNorm2d(ndf * 16),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             # stat size .(ndf*16)x 8 x 8
+#             nn.Conv2d(ndf * 16, ndf * 32, 4, 2, 1, bias=False),
+#             nn.BatchNorm2d(ndf * 32),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             nn.Conv2d(ndf * 32, 1, 4, 1, 0, bias=False),
+#             nn.Sigmoid()
+#         )
+#         for m in self.modules():
+#             if isinstance(m, nn.Conv2d):
+#                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+#             elif isinstance(m, nn.BatchNorm2d):
+#                 nn.init.constant_(m.weight, 1)
+#                 nn.init.constant_(m.bias, 0)
+#
+#     def forward(self, input):
+#         return self.main(input)[:,0,0,0]
+
+
+class NLayerDiscriminator(nn.Module):
+    """Defines a PatchGAN discriminator"""
+
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d):
+        """Construct a PatchGAN discriminator
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            ndf (int)       -- the number of filters in the last conv layer
+            n_layers (int)  -- the number of conv layers in the discriminator
+            norm_layer      -- normalization layer
+        """
+        super(NLayerDiscriminator, self).__init__()
+        if type(norm_layer) == functools.partial:  # no need to use bias as BatchNorm2d has affine parameters
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+
+        kw = 4
+        padw = 1
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
+        nf_mult = 1
+        nf_mult_prev = 1
+        for n in range(1, n_layers):  # gradually increase the number of filters
+            nf_mult_prev = nf_mult
+            nf_mult = min(2 ** n, 8)
+            sequence += [
+                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias),
+                norm_layer(ndf * nf_mult),
+                nn.LeakyReLU(0.2, True)
+            ]
+
+        nf_mult_prev = nf_mult
+        nf_mult = min(2 ** n_layers, 8)
+        sequence += [
+            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
+            norm_layer(ndf * nf_mult),
+            nn.LeakyReLU(0.2, True)
+        ]
+
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
+        self.model = nn.Sequential(*sequence)
 
     def forward(self, input):
-        return self.main(input)[:,0,0,0]
-
-class D_HR(nn.Module):
-    def __init__(self,nc=3,ndf=64):
-        super(D_HR, self).__init__()
-        self.main = nn.Sequential(
-            # input is (nc) x 256 x 256
-            nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf) x 128 x 128
-            nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 2),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf*2) x 64 x 64
-            nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf*4) x 32 x 32
-            nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 8),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf*8) x 16 x 16
-            nn.Conv2d(ndf * 8, ndf * 16, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 16),
-            nn.LeakyReLU(0.2, inplace=True),
-            # stat size .(ndf*16)x 8 x 8
-            nn.Conv2d(ndf * 16, ndf * 32, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 32),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(ndf * 32, 1, 4, 1, 0, bias=False),
-            nn.Sigmoid()
-        )
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-    def forward(self, input):
-        return self.main(input)[:,0,0,0]
+        """Standard forward."""
+        return self.model(input)
 
 if __name__ == "__main__":
     # Hyper Parameters
@@ -382,8 +452,8 @@ if __name__ == "__main__":
 
     print(x1.shape)
 
-    generatorA = RDDBNetA(3,1,64, nb=1)
-    generatorB = RDDBNetB(1,3,64,nb=1)
+    generatorA = RDDBNetA(3,1,64,nb=1,mode='x2')
+    generatorB = RDDBNetB(1,3,64,nb=1,mode='x2')
 
     genB = generatorA(x)
     rectB = generatorB(genB)
@@ -393,9 +463,12 @@ if __name__ == "__main__":
 
     genA = generatorB(y)
     rectA = generatorA(genA)
+    print('genA：', genA.size())
+    print('recA：', rectA.size())
+    print('genB：', genB.size())
+    print('recB：', rectB.size())
 
     netD_B = D_LR(nc=1)
-    print(netD_B (y))
     print(netD_B (y).shape)
     D = D_HR()
     print(D(x).shape)
@@ -405,11 +478,6 @@ if __name__ == "__main__":
     # print(" Network output ", gen_y)
     # print(generatorA)
     # print(generatorB)
-    genA = F.max_pool2d(genA, 3, 2, padding=1, dilation=1, ceil_mode=False, return_indices=False)
-    print('genA ;',genA.shape)
-    genAB = F.upsample(genB,scale_factor=4)
-    print(torch.cat([genAB, genAB, genAB], dim=1).shape)
-    print(genB.shape)
     #print(gobal(pool_1))
     #print(gen_y)
     # print(type(x))
