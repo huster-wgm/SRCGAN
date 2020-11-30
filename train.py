@@ -321,7 +321,7 @@ class params(object):
         self.num_works = 2
         self.num_epochs = 25
         self.pool_size = 4
-        self.lambda_identity = 0
+        self.lambda_identity = 1.0
         self.lambda_A = 10
         self.lambda_B = 10
         self.n_epochs_decay = 100
@@ -340,7 +340,7 @@ if __name__ == '__main__':
     print("Starting Training Loop...")
     # For each epoch
     logger = Logger(len(trainset), opt.num_epochs)
-    for epoch in range(0, opt.num_epochs):
+    for epoch in range(1, opt.num_epochs+1):
         # setup data loader
         data_loader = DataLoader(trainset, opt.batch_size, num_workers=opt.num_works,
                                  shuffle=True, pin_memory=True, )
@@ -366,11 +366,12 @@ if __name__ == '__main__':
                             'iden_A': model.iden_A, 'iden_B': model.iden_B,
                            }
                 )
-        ### 可视化 ###
-        if (epoch + 1) % 5 == 0:
-            netGA = './checkpoints/netG_A2B_%s_DSSIM2_%04d.pth' % (opt.mode, epoch + 1)
-            netGB = './checkpoints/netG_B2A_%s_DSSIM2_%04d.pth' % (opt.mode, epoch + 1)
-            torch.save(model.netG_A.state_dict(), netGA)
-            torch.save(model.netG_B.state_dict(), netGB)
-            import os
-            os.system('python test.py --netGA {} --netGB {}'.format(netGA, netGB))
+
+            ### 可视化 ###
+            if epoch % 5 == 0:
+                netGA = './checkpoints/netG_A2B_%s_%04d.pth' % (opt.mode, epoch)
+                netGB = './checkpoints/netG_B2A_%s_%04d.pth' % (opt.mode, epoch)
+                torch.save(model.netG_A.state_dict(), netGA)
+                torch.save(model.netG_B.state_dict(), netGB)
+                import os
+                os.system('python test.py --netGA {} --netGB {}'.format(netGA, netGB))
