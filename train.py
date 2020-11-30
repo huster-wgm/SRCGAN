@@ -155,7 +155,7 @@ class SRCycleGAN(object):
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
         self.opt = opt
-        self.loss_names = ['D_A', 'G_A', 'cycle_A', 'idt_A', 'D_B', 'G_B', 'cycle_B', 'idt_B']
+        self.loss_names = ['D_A', 'G_A', 'cycle_A', 'iden_A', 'D_B', 'G_B', 'cycle_B', 'iden_B']
 
         # define networks (both Generators and discriminators)
         # The naming is different from those used in the paper.
@@ -168,15 +168,13 @@ class SRCycleGAN(object):
         self.fake_A_pool = ImagePool(opt.pool_size)
         self.fake_B_pool = ImagePool(opt.pool_size)
         # define loss functions
-        self.criterionGAN = GANLoss(gan_mode='DSSIM', device=opt.device)  # define GAN loss.
-        self.criterionCycle = losses.L1Loss()
+        self.criterionGAN = GANLoss(gan_mode='lsgan', device=opt.device)  # define GAN loss.
+        self.criterionCycle = losses.DSSIMLoss()
         self.criterionIdt = losses.L1Loss()
         # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
         self.optimizers = []
-        self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()),
-                                            lr=opt.lr, betas=(opt.beta1, 0.999))
-        self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()),
-                                            lr=opt.lr, betas=(opt.beta1, 0.999))
+        self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
+        self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
         self.optimizers.append(self.optimizer_G)
         self.optimizers.append(self.optimizer_D)
 
@@ -220,6 +218,20 @@ class SRCycleGAN(object):
         self.recl_A = self.netG_B(self.fake_B)  # G_B(G_A(A))
         self.fake_A = self.netG_B(self.real_B)  # G_B(B) 64
         self.recl_B = self.netG_A(self.fake_A)  # G_A(G_B(B))
+        if self.opt.mode == "x2":
+            scale_factor = 2
+        else:
+            scale_factor = 4
+        # Y = 0.2125 R + 0.7154 G + 0.0721 B [RGB2Gray, 3=>1 ch]
+        self.real_B_Gray = 0.2125 * self.real_B[:,:1,:,:] + 0.7154 * self.real_B[:,1:2,:,:] + 0.0721 * self.real_B[:,2:3,:,:] 
+        self.real_B_Gray = F.interpolate(self.real_B_Gray, scale_factor=1./scale_factor)
+        # G_A should be identity if real_B is fed: ||G_A(B) - B||
+        self.iden_A = self.netG_A(self.real_B_Gray)
+        # [Gray2RGB, 1=>3 ch]
+        self.real_A_RGB = torch.cat([self.real_A, self.real_A, self.real_A], dim=1)
+        self.real_A_RGB = F.interpolate(self.real_A_RGB, scale_factor=scale_factor)
+        # G_B should be identity if real_A is fed: ||G_B(A) - A||
+        self.iden_B = self.netG_B(self.real_A_RGB)
 
     def backward_D_basic(self, netD, real, fake):
         """Calculate GAN loss for the discriminator
@@ -256,22 +268,18 @@ class SRCycleGAN(object):
         lambda_idt = self.opt.lambda_identity
         lambda_A = self.opt.lambda_A
         lambda_B = self.opt.lambda_B
+        
         # Identity loss
         if lambda_idt > 0:
-            # G_A should be identity if real_B is fed: ||G_A(B) - B||
-            self.weight = torch.FloatTensor(1, 3, 1, 1).to(opt.device)
-            self.real_B1 = F.max_pool2d(self.real_B, 3, 4, padding=0, dilation=1, ceil_mode=False, return_indices=False)
-            self.real_B1 = F.conv2d(self.real_B1, self.weight, bias=None, stride=1)  # nc3 to nc 1
-            self.real_A3 = F.interpolate(self.real_A, scale_factor=4)
-            self.real_A3 = torch.cat([self.real_A3, self.real_A3, self.real_A3], dim=1)
-            self.idt_A = self.netG_A(self.real_B1)
-            self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B / 2 * lambda_idt
-            # G_B should be identity if real_A is fed: ||G_B(A) - A||
-            self.idt_B = self.netG_B(self.real_A3)
-            self.loss_idt_B = self.criterionIdt(self.idt_B, self.real_A) * lambda_A / 2 * lambda_idt
+#             # G_A should be identity if real_B is fed: ||G_A(B) - B||
+#             self.iden_A = self.netG_A(self.real_B_Gray)
+            self.loss_iden_A = self.criterionIdt(self.iden_A, self.real_B) * lambda_B / 2 * lambda_idt
+#             # G_B should be identity if real_A is fed: ||G_B(A) - A||
+#             self.iden_B = self.netG_B(self.real_A_RGB)
+            self.loss_iden_B = self.criterionIdt(self.iden_B, self.real_A) * lambda_A / 2 * lambda_idt
         else:
-            self.loss_idt_A = 0
-            self.loss_idt_B = 0
+            self.loss_iden_A = 0
+            self.loss_iden_B = 0
 
         # GAN loss D_A(G_A(A))
         self.loss_G_A = self.criterionGAN(self.netD_A(self.fake_B), True)
@@ -282,7 +290,7 @@ class SRCycleGAN(object):
         # Backward cycle loss || G_A(G_B(B)) - B||
         self.loss_cycle_B = self.criterionCycle(self.recl_B, self.real_B) * lambda_B * 0.5
         # combined loss and calculate gradients
-        self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
+        self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_iden_A + self.loss_iden_B
 
         self.loss_G.backward()
 
@@ -313,13 +321,13 @@ class params(object):
         self.num_works = 2
         self.num_epochs = 25
         self.pool_size = 4
-        self.lambda_identity = 1
+        self.lambda_identity = 0
         self.lambda_A = 10
         self.lambda_B = 10
         self.n_epochs_decay = 100
         self.matrix = 0
         self.lr_policy = 'cosine'
-        self.mode = 'x4'
+        self.mode = 'x2'
 
 
 if __name__ == '__main__':
@@ -347,13 +355,16 @@ if __name__ == '__main__':
                     nepoch=epoch,
                     niter=idx,
                     losses={'loss_G': model.loss_G.item(),
-                            'loss_G_identity': model.loss_idt_A+ model.loss_idt_B,
+                            'loss_G_identity': model.loss_iden_A+ model.loss_iden_B,
                             'loss_G_GAN': (model.loss_G_A.item() + model.loss_G_B.item()),
                             'loss_G_cycle': (model.loss_cycle_A.item() + model.loss_cycle_B.item()),
                             'loss_D': (model.loss_D_A.item() + model.loss_D_B.item())},
                     images={'real_A': model.real_A, 'real_B': model.real_B,
+                            'A2RGB': model.real_A_RGB, 'B2Gry': model.real_B_Gray,
                             'fake_A': model.fake_A, 'fake_B': model.fake_B,
-                            'recl_A': model.recl_A, 'recl_B': model.recl_B}
+                            'recl_A': model.recl_A, 'recl_B': model.recl_B,
+                            'iden_A': model.iden_A, 'iden_B': model.iden_B,
+                           }
                 )
         ### 可视化 ###
         if (epoch + 1) % 5 == 0:
