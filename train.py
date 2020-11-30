@@ -1,10 +1,11 @@
+import os
 import torch
 import random
 import torchvision
 import torch.nn as nn
 from dataset import load_dataset
 from torch.utils.data import DataLoader
-from SRC64 import RDDBNetA, RDDBNetB, D_LR, D_HR
+from SRC128 import RDDBNetA, RDDBNetB, D_LR, D_HR
 import itertools
 import numpy as np
 from utils import Logger
@@ -230,9 +231,9 @@ class SRCycleGAN(object):
         # GAN loss D_B(G_B(B))
         self.loss_G_B = self.criterionGAN(self.netD_B(self.fake_A), True)
         # Forward cycle loss || G_B(G_A(A)) - A||
-        self.loss_cycle_A = self.criterionCycle(self.recl_A, self.real_A) * lambda_A
+        self.loss_cycle_A = self.criterionCycle(self.recl_A, self.real_A) * lambda_A * 0.5
         # Backward cycle loss || G_A(G_B(B)) - B||
-        self.loss_cycle_B = self.criterionCycle(self.recl_B, self.real_B) * lambda_B
+        self.loss_cycle_B = self.criterionCycle(self.recl_B, self.real_B) * lambda_B * 0.5
         # combined loss and calculate gradients
         self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
         self.loss_G.backward()
@@ -273,7 +274,7 @@ if __name__ == '__main__':
     ### Build model
     model = SRCycleGAN(opt)
     ### Data preparation
-    trainset, valset, testset = load_dataset('Sat2Aerx4')
+    trainset, valset, testset = load_dataset('Sat2Aerx2')
     print("Starting Training Loop...")
     # For each epoch
     logger = Logger(len(trainset), opt.num_epochs)
@@ -297,10 +298,10 @@ if __name__ == '__main__':
                             'loss_D': (model.loss_D_A.item() + model.loss_D_B.item())},
                     images={'real_A': model.real_A, 'real_B': model.real_B,
                             'fake_A': model.fake_A, 'fake_B': model.fake_B,
-                            'recl_A': model.recl_A, 'recl_B': model.recl_B,
-                           })
+                            'recl_A': model.recl_A, 'recl_B': model.recl_B}
+                )
         ### 可视化 ###
-        if epoch % 5 == 0:
-            torch.save(model.netG_A.state_dict(), './checkpoints/netG_A2B_%04d.pth' % epoch)
-            torch.save(model.netG_B.state_dict(), './checkpoints/netG_B2A_%04d.pth' % epoch)
+        if (epoch+1) % 5 == 0:
+            torch.save(model.netG_A.state_dict(), './checkpoints/netG_A2B_%04d.pth' % (epoch+1))
+            torch.save(model.netG_B.state_dict(), './checkpoints/netG_B2A_%04d.pth' % (epoch+1))
 

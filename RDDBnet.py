@@ -25,7 +25,7 @@ class ResidualDenseBlock_5(nn.Module):
 
     def forward(self, x, lemda=0.2):
         x1 = self.lrelu(self.conv1(x))
-        x2 = self.lrelu(self.conv2(torch.cat((x, x1), 1)))
+                    x2 = self.lrelu(self.conv2(torch.cat((x, x1), 1)))
         x3 = self.lrelu(self.conv3(torch.cat((x, x1, x2), 1)))
         x4 = self.lrelu(self.conv4(torch.cat((x, x1, x2, x3), 1)))
         x5 = self.conv5(torch.cat((x, x1, x2, x3, x4), 1))
@@ -236,7 +236,7 @@ if __name__ == "__main__":
     pool_1, pool_2, pool_3, pool_4, pool_5 = np.zeros(5)
     pool_6, pool_7, pool_8, pool_9, pool_0 = np.zeros(5)
     generatorA = RDDBNetA(3,1,64, nb=1)
-    generatorB = RDDBNetB(1,3,64,nb=1)
+    generatorB = RDDBNetB(1,3,64, nb=1)
     D = Discriminator(y)
 
     genB = generatorA(x)
