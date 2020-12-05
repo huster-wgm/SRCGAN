@@ -12,7 +12,7 @@ from torch.optim import lr_scheduler
 import losses
 from dataset import load_dataset
 from torch.utils.data import DataLoader
-from SRC64 import RDDBNetA, RDDBNetB, NLayerDiscriminator
+from model import RDDBNetA, RDDBNetB, NLayerDiscriminator
 import itertools
 from skimage.io import imsave
 from utils import Logger
@@ -28,7 +28,7 @@ class params(object):
         self.num_works = 2
         self.num_epochs = 25
         self.pool_size = 4
-        self.lambda_identity = 0
+        self.lambda_identity = 1
         self.lambda_A = 10
         self.lambda_B = 10
         self.n_epochs_decay = 100
@@ -48,15 +48,18 @@ if __name__ == '__main__':
     parse =  argparse.ArgumentParser()
     parse.add_argument('--netGA', type=str)
     parse.add_argument('--netGB', type=str)
+    parse.add_argument('--model', type=str)
     args = parse.parse_args()
     # Hyperparameters
     opt = params()
     ### Build model
 
-    netG_A2B = RDDBNetB(1, 3, 64, nb=1).to(opt.device)
-    netG_B2A = RDDBNetA(3, 1, 64, nb=1).to(opt.device)
+    netG_A2B = RDDBNetB(1, 3, 64, nb=2).to(opt.device)
+    netG_B2A = RDDBNetA(3, 1, 64, nb=2).to(opt.device)
 
     # load check point
+    # netGA = './checkpoints/netG_A2B_idt4_x2_0025.pth'
+    # netGB = './checkpoints/netG_B2A_idt4_x2_0025.pth'
     checkpoint = torch.load(args.netGA)
     netG_A2B.load_state_dict(checkpoint)
     checkpoint = torch.load(args.netGB)
@@ -71,7 +74,7 @@ if __name__ == '__main__':
         os.makedirs('result/'+checkB)
 
     ### Data preparation
-    trainset, valset, testset = load_dataset('Sat2Aerx4')
+    trainset, valset, testset = load_dataset('Sat2Aer{}'.format(args.model))
     print("Starting test Loop...")
     # For each epoch
     logger = Logger(len(testset), opt.num_epochs)

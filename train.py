@@ -160,21 +160,21 @@ class SRCycleGAN(object):
         # define networks (both Generators and discriminators)
         # The naming is different from those used in the paper.
         # Code (vs. paper): G_A (G), G_B (F), D_A (D_Y), D_B (D_X)
-        self.netG_A = RDDBNetB(1, 3, 64, nb=1, mode=opt.mode).to(opt.device)
-        self.netG_B = RDDBNetA(3, 1, 64, nb=1, mode=opt.mode).to(opt.device)
+        self.netG_A = RDDBNetB(1, 3, 64, nb=2, mode=opt.mode).to(opt.device)
+        self.netG_B = RDDBNetA(3, 1, 64, nb=2, mode=opt.mode).to(opt.device)
 
-        self.netD_A = NLayerDiscriminator(3, 64, 3).to(opt.device)
-        self.netD_B = NLayerDiscriminator(1, 64, 3).to(opt.device)
+        self.netD_A = NLayerDiscriminator(3, 64, 2).to(opt.device)
+        self.netD_B = NLayerDiscriminator(1, 64, 2).to(opt.device)
         self.fake_A_pool = ImagePool(opt.pool_size)
         self.fake_B_pool = ImagePool(opt.pool_size)
         # define loss functions
         self.criterionGAN = GANLoss(gan_mode='lsgan', device=opt.device)  # define GAN loss.
-        self.criterionCycle = losses.DSSIMLoss()
+        self.criterionCycle = losses.L1Loss()
         self.criterionIdt = losses.L1Loss()
         # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
         self.optimizers = []
         self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
-        self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
+        self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()), lr = 1e-6, betas=(opt.beta1, 0.999))
         self.optimizers.append(self.optimizer_G)
         self.optimizers.append(self.optimizer_D)
 
@@ -273,7 +273,7 @@ class SRCycleGAN(object):
         if lambda_idt > 0:
 #             # G_A should be identity if real_B is fed: ||G_A(B) - B||
 #             self.iden_A = self.netG_A(self.real_B_Gray)
-            self.loss_iden_A = self.criterionIdt(self.iden_A, self.real_B) * lambda_B / 2 * lambda_idt
+            self.loss_iden_A = self.criterionIdt(self.iden_A, self.real_B) * lambda_B / 2 * lambda_idt   # 改了除以4
 #             # G_B should be identity if real_A is fed: ||G_B(A) - A||
 #             self.iden_B = self.netG_B(self.real_A_RGB)
             self.loss_iden_B = self.criterionIdt(self.iden_B, self.real_A) * lambda_A / 2 * lambda_idt
@@ -290,7 +290,7 @@ class SRCycleGAN(object):
         # Backward cycle loss || G_A(G_B(B)) - B||
         self.loss_cycle_B = self.criterionCycle(self.recl_B, self.real_B) * lambda_B * 0.5
         # combined loss and calculate gradients
-        self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_iden_A + self.loss_iden_B
+        self.loss_G = (self.loss_G_A + self.loss_G_B)+ self.loss_cycle_A + self.loss_cycle_B + self.loss_iden_A + self.loss_iden_B
 
         self.loss_G.backward()
 
@@ -319,7 +319,7 @@ class params(object):
         self.beta1 = 0.5
         self.batch_size = 1
         self.num_works = 2
-        self.num_epochs = 25
+        self.num_epochs = 30
         self.pool_size = 4
         self.lambda_identity = 1.0
         self.lambda_A = 10
@@ -367,11 +367,11 @@ if __name__ == '__main__':
                            }
                 )
 
-            ### 可视化 ###
-            if epoch % 5 == 0:
-                netGA = './checkpoints/netG_A2B_%s_%04d.pth' % (opt.mode, epoch)
-                netGB = './checkpoints/netG_B2A_%s_%04d.pth' % (opt.mode, epoch)
-                torch.save(model.netG_A.state_dict(), netGA)
-                torch.save(model.netG_B.state_dict(), netGB)
-                import os
-                os.system('python test.py --netGA {} --netGB {}'.format(netGA, netGB))
+             ### 可视化 ###
+        if epoch % 5 == 0:
+            netGA = './checkpoints/netG_A2B_idt7_%s_%04d.pth' % (opt.mode, epoch)
+            netGB = './checkpoints/netG_B2A_idt7_%s_%04d.pth' % (opt.mode, epoch)
+            torch.save(model.netG_A.state_dict(), netGA)
+            torch.save(model.netG_B.state_dict(), netGB)
+            import os
+            os.system('python test.py --netGA {} --netGB {} --model {}'.format(netGA, netGB, opt.mode))

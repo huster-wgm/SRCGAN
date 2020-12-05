@@ -168,7 +168,7 @@ class Encoder(nn.Module):
 
 
 class RDDBNetA(nn.Module):
-    def __init__(self,in_nc, out_nc, nf, nb=2, gc = 32, mode='x2'):
+    def __init__(self,in_nc, out_nc, nf, nb=3, gc = 32, mode='x2'):
         super(RDDBNetA, self).__init__()
         RRDB_block_f = functools.partial(RRDB, nf=nf, gc=gc)
 
@@ -202,17 +202,22 @@ class RDDBNetA(nn.Module):
     def forward(self, x):
         fea = self.conv_first(x)
         trunk = self.trunk_conv(self.RRDB_trunk(fea))
-        fea = fea + trunk
-        fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
         if self.mode == 'x4':
+            fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
             fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
+        elif self.mode == 'x2':
+            fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
+            fea = self.lrelu(self.upconv1(fea))
+        fea = self.lrelu(self.HRconv(fea))
+        fea = self.lrelu(self.HRconv(fea))
+        fea = self.lrelu(self.HRconv(fea))   # 多加了一层
         out = self.conv_last(self.lrelu(self.HRconv(fea)))
         return out
 
 
 
 class RDDBNetB(nn.Module):
-    def __init__(self, in_nc, out_nc, nf, nb=2, gc=32, mode='x2'):
+    def __init__(self, in_nc, out_nc, nf, nb=3, gc=32, mode='x2'):
         super(RDDBNetB, self).__init__()
         RRDB_block_f = functools.partial(RRDB, nf=nf, gc=gc)
         self.conv_first = nn.Conv2d(in_nc, nf, 3, 1, 1, bias=True)
@@ -238,9 +243,16 @@ class RDDBNetB(nn.Module):
         fea = fea + trunk
         # fea = self.encode(fea)
         # out = self.conv_last(fea)
-        fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=2, mode='nearest')))
+
         if self.mode == 'x4':
+            fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=2, mode='nearest')))
             fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        elif self.mode == 'x2':
+            fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=2, mode='nearest')))
+            fea = self.lrelu(self.upconv1(fea))
+        fea = self.lrelu(self.HRconv(fea))
+        fea = self.lrelu(self.HRconv(fea))
+        fea = self.lrelu(self.HRconv(fea))
         out = self.conv_last(self.lrelu(self.HRconv(fea)))
         return out
 

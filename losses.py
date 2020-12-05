@@ -7,10 +7,12 @@
 """
 import numpy as np
 import torch
-from torch import nn
 from torchvision import models
-import torch.nn.functional as F
 import math
+import torch.nn as nn
+import torch.nn.functional as F
+from torch import Tensor
+from torchvision.models import vgg19
 
 eps = 1e-6
 
@@ -451,6 +453,20 @@ class VGG16Loss3D(nn.Module):
                 self.forward2d(output[:,:,f,:,:], target[:,:,f,:,:]))
         return sum(loss) / len(loss)
 
+class PerceptionLoss(nn.Module):
+
+    def __init__(self,feature_layer: int=35)-> None:
+        super(PerceptionLoss, self).__init__()
+        model= vgg19(pretrained=True)
+        self.features = nn.Sequential(*list(model.features.children())[:feature_layer]).eval()
+        for name, param in self.features.named_parameters():
+            param.requires_grad = False
+
+    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+        perception_loss = F.mse_loss(self.features(input), self.features(target))
+
+        return perception_loss
+
 
 if __name__ == "__main__":
     for ch in [3, 1]:
@@ -509,4 +525,5 @@ if __name__ == "__main__":
             loss.backward()
             print('\t gradient aft : {}'.format(y_pred_.grad.shape))
             print('{}-near : {}'.format(repr(criterion), loss.item()))
+
 
