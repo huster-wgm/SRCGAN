@@ -374,4 +374,4 @@ if __name__ == '__main__':
             torch.save(model.netG_A.state_dict(), netGA)
             torch.save(model.netG_B.state_dict(), netGB)
             import os
-            os.system('python test.py --netGA {} --netGB {} --model {}'.format(netGA, netGB, opt.mode))
+            os.system('python test.py --netGA {} --netGB {}'.format(netGA, netGB))
