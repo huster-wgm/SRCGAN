@@ -160,8 +160,8 @@ class SRCycleGAN(object):
         # define networks (both Generators and discriminators)
         # The naming is different from those used in the paper.
         # Code (vs. paper): G_A (G), G_B (F), D_A (D_Y), D_B (D_X)
-        self.netG_A = RDDBNetB(1, 3, 64, nb=2, mode=opt.mode).to(opt.device)
-        self.netG_B = RDDBNetA(3, 1, 64, nb=2, mode=opt.mode).to(opt.device)
+        self.netG_A = RDDBNetB(1, 3, 64, nb=3, mode=opt.mode).to(opt.device)
+        self.netG_B = RDDBNetA(3, 1, 64, nb=3, mode=opt.mode).to(opt.device)
 
         self.netD_A = NLayerDiscriminator(3, 64, 2).to(opt.device)
         self.netD_B = NLayerDiscriminator(1, 64, 2).to(opt.device)
@@ -174,7 +174,7 @@ class SRCycleGAN(object):
         # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
         self.optimizers = []
         self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
-        self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()), lr = 1e-6, betas=(opt.beta1, 0.999))
+        self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()), lr = 1e-5, betas=(opt.beta1, 0.999))
         self.optimizers.append(self.optimizer_G)
         self.optimizers.append(self.optimizer_D)
 
@@ -319,7 +319,7 @@ class params(object):
         self.beta1 = 0.5
         self.batch_size = 1
         self.num_works = 2
-        self.num_epochs = 30
+        self.num_epochs = 25
         self.pool_size = 4
         self.lambda_identity = 1.0
         self.lambda_A = 10
@@ -369,8 +369,8 @@ if __name__ == '__main__':
 
              ### 可视化 ###
         if epoch % 5 == 0:
-            netGA = './checkpoints/netG_A2B_idt7_%s_%04d.pth' % (opt.mode, epoch)
-            netGB = './checkpoints/netG_B2A_idt7_%s_%04d.pth' % (opt.mode, epoch)
+            netGA = './checkpoints/netG_A2B_idt9_%s_%04d.pth' % (opt.mode, epoch)
+            netGB = './checkpoints/netG_B2A_idt9_%s_%04d.pth' % (opt.mode, epoch)
             torch.save(model.netG_A.state_dict(), netGA)
             torch.save(model.netG_B.state_dict(), netGB)
             import os

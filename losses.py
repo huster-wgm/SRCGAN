@@ -37,7 +37,7 @@ class SSIM(object):
         window = _2D_window.expand(channel, 1, w_size, w_size).contiguous()
         return window
 
-    def __call__(self, y_pred, y_true, w_size=6, size_average=True, full=False):
+    def __call__(self, y_pred, y_true, w_size=11, size_average=True, full=False):
         """
         args:
             y_true : 4-d ndarray in [batch_size, channels, img_rows, img_cols]
@@ -45,7 +45,7 @@ class SSIM(object):
             w_size : int, default 11
             size_average : boolean, default True
             full : boolean, default False
-        return ssim, larger the better
+        return ssim
         """
         # Value range can be different from 255. Other common ranges are 1 (sigmoid) and 2 (tanh).
         if torch.max(y_pred) > 128:
@@ -62,8 +62,7 @@ class SSIM(object):
         padd = 0
         (_, channel, height, width) = y_pred.size()
         window = self.create_window(w_size, channel=channel).to(y_pred.device)
-        # print(window.size())
-        # print(y_pred.size())
+
         mu1 = F.conv2d(y_pred, window, padding=padd, groups=channel)
         mu2 = F.conv2d(y_true, window, padding=padd, groups=channel)
 

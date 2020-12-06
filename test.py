@@ -54,8 +54,8 @@ if __name__ == '__main__':
     opt = params()
     ### Build model
 
-    netG_A2B = RDDBNetB(1, 3, 64, nb=2).to(opt.device)
-    netG_B2A = RDDBNetA(3, 1, 64, nb=2).to(opt.device)
+    netG_A2B = RDDBNetB(1, 3, 64, nb=3).to(opt.device)
+    netG_B2A = RDDBNetA(3, 1, 64, nb=3).to(opt.device)
 
     # load check point
     # netGA = './checkpoints/netG_A2B_idt4_x2_0025.pth'
