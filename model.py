@@ -455,20 +455,173 @@ class NLayerDiscriminator(nn.Module):
         """Standard forward."""
         return self.model(input)
 
+#### SRDenseNet
+
+class ConvLayer(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size):
+        super(ConvLayer, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        return self.relu(self.conv(x))
+
+
+class DenseLayer(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size):
+        super(DenseLayer, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        return torch.cat([x, self.relu(self.conv(x))], 1)
+
+
+class DenseBlock(nn.Module):
+    def __init__(self, in_channels, growth_rate, num_layers):
+        super(DenseBlock, self).__init__()
+        self.block = [ConvLayer(in_channels, growth_rate, kernel_size=3)]
+        for i in range(num_layers - 1):
+            self.block.append(DenseLayer(growth_rate * (i + 1), growth_rate, kernel_size=3))
+        self.block = nn.Sequential(*self.block)
+
+    def forward(self, x):
+        return torch.cat([x, self.block(x)], 1)
+
+
+class SRDenseNetA(nn.Module):
+    def __init__(self, in_nc, out_nc, num_channels=1, growth_rate=16, num_blocks=8, num_layers=8, mode='x2'):
+        super(SRDenseNetA, self).__init__()
+        self.mode = mode
+        self.conv_first = nn.Conv2d(in_nc, 1, 3, 1, 1, bias=True)
+
+
+        # low level features
+        self.conv = ConvLayer(num_channels, growth_rate * num_layers, 3)
+
+        # high level features
+        self.dense_blocks = []
+        for i in range(num_blocks):
+            self.dense_blocks.append(DenseBlock(growth_rate * num_layers * (i + 1), growth_rate, num_layers))
+        self.dense_blocks = nn.Sequential(*self.dense_blocks)
+
+        # bottleneck layer
+        self.bottleneck = nn.Sequential(
+            nn.Conv2d(growth_rate * num_layers + growth_rate * num_layers * num_blocks, 256, kernel_size=1),
+            nn.ReLU(inplace=True)
+        )
+
+        # deconvolution layers
+        self.deconv = nn.Sequential(
+            nn.ConvTranspose2d(256, 256, kernel_size=3, stride=2, padding=3 // 2, output_padding=1),
+            nn.ReLU(inplace=True),
+        )
+
+        # reconstruction layer
+        self.reconstruction = nn.Conv2d(256, num_channels, kernel_size=3, padding=3 // 2)
+
+        self.conv_last = nn.Conv2d(1, out_nc, 3, 1, 1, bias=True)
+
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+                nn.init.kaiming_normal_(m.weight.data, nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias.data)
+
+    def forward(self, x):
+        x = self.conv_first(x)
+        x = self.conv(x)
+        x = self.dense_blocks(x)
+        x = self.bottleneck(x)
+        if self.mode == 'x2':
+            x = self.deconv(x)
+        elif self.mode == 'x4':
+            x = self.deconv(x)
+            x = self.deconv(x)
+        x = self.reconstruction(x)
+        x = self.conv_last(x)
+        return x
+
+
+class SRDenseNetB(nn.Module):
+    def __init__(self, in_nc, out_nc, num_channels=1, growth_rate=16, num_blocks=8, num_layers=8, mode='x2'):
+        super(SRDenseNetB, self).__init__()
+        self.mode = mode
+        self.conv_first = nn.Conv2d(in_nc, 1, 3, 1, 1, bias=True)
+
+
+        # low level features
+        self.conv = ConvLayer(num_channels, growth_rate * num_layers, 3)
+
+        # high level features
+        self.dense_blocks = []
+        for i in range(num_blocks):
+            self.dense_blocks.append(DenseBlock(growth_rate * num_layers * (i + 1), growth_rate, num_layers))
+        self.dense_blocks = nn.Sequential(*self.dense_blocks)
+
+        # bottleneck layer
+        self.bottleneck = nn.Sequential(
+            nn.Conv2d(growth_rate * num_layers + growth_rate * num_layers * num_blocks, 256, kernel_size=1),
+            nn.ReLU(inplace=True)
+        )
+
+        # deconvolution layers
+        self.deconv = nn.Sequential(
+            nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+        )
+
+        # reconstruction layer
+        self.reconstruction = nn.Conv2d(256, num_channels, kernel_size=3, padding=3 // 2)
+
+        self.conv_last = nn.Conv2d(1, out_nc, 3, 1, 1, bias=True)
+
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+                nn.init.kaiming_normal_(m.weight.data, nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias.data)
+
+    def forward(self, x):
+        x = self.conv_first(x)
+        x = self.conv(x)
+        x = self.dense_blocks(x)
+        x = self.bottleneck(x)
+        if self.mode == 'x2':
+            x = self.deconv(x)
+        elif self.mode == 'x4':
+            x = self.deconv(x)
+            x = self.deconv(x)
+        x = self.reconstruction(x)
+        x = self.conv_last(x)
+        return x
 if __name__ == "__main__":
     # Hyper Parameters
-    x = torch.FloatTensor(np.random.random((1, 3, 256, 256)))
+    x = torch.FloatTensor(np.random.random((1, 3, 128, 128)))
     y = torch.FloatTensor(np.random.random((1, 1, 64, 64)))
     x1 = F.max_pool2d(x, 3, 4, padding=0, dilation=1, ceil_mode=False, return_indices=False)
     x1 = F.conv2d(x1,torch.FloatTensor(1,3,1,1),bias=None, stride=1)
 
-    print(x1.shape)
+    print(y.shape)
 
-    generatorA = RDDBNetA(3,1,64,nb=1,mode='x2')
-    generatorB = RDDBNetB(1,3,64,nb=1,mode='x2')
+    #generatorA = RDDBNetA(3,1,64,nb=1,mode='x2')
+    #generatorB = RDDBNetB(1,3,64,nb=1,mode='x2')
 
-    genB = generatorA(x)
-    rectB = generatorB(genB)
+    G_A  = SRDenseNetA(1,3)
+    G_B = SRDenseNetB(3,1)
+
+
+    genB = G_A(y)
+    genA = G_B(x)
+    print('genA：', genA.size())
+    print('genB：', genB.size())
+    #rectB = generatorB(genB)
     # 还原 pool
     # pool_1, pool_2, pool_3, pool_4, pool_5 = np.zeros(5)
     # pool_6, pool_7, pool_8, pool_9, pool_0 = np.zeros(5)

@@ -462,6 +462,9 @@ class PerceptionLoss(nn.Module):
             param.requires_grad = False
 
     def forward(self, input: Tensor, target: Tensor) -> Tensor:
+        if input.shape[1] == 1:
+            input  = torch.cat([input, input, input], dim=1)
+            target = torch.cat([target, target, target], dim=1)
         perception_loss = F.mse_loss(self.features(input), self.features(target))
 
         return perception_loss

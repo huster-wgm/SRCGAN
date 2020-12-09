@@ -8,7 +8,7 @@ import losses
 from dataset import load_dataset
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
-from model import RDDBNetA, RDDBNetB, NLayerDiscriminator
+from model import RDDBNetA, RDDBNetB, NLayerDiscriminator, SRDenseNetA,SRDenseNetB
 import itertools
 import numpy as np
 from utils import Logger
@@ -160,8 +160,12 @@ class SRCycleGAN(object):
         # define networks (both Generators and discriminators)
         # The naming is different from those used in the paper.
         # Code (vs. paper): G_A (G), G_B (F), D_A (D_Y), D_B (D_X)
-        self.netG_A = RDDBNetB(1, 3, 64, nb=3, mode=opt.mode).to(opt.device)
-        self.netG_B = RDDBNetA(3, 1, 64, nb=3, mode=opt.mode).to(opt.device)
+        if opt.net == 'SRdens':
+            self.netG_A = SRDenseNetA(1,3,mode=opt.mode,num_blocks=4,num_layers=4).to(opt.device)
+            self.netG_B =SRDenseNetB(3,1,mode=opt.mode,num_blocks=4,num_layers=4).to(opt.device)
+        else:
+            self.netG_A = RDDBNetB(1, 3, 64, nb=3, mode=opt.mode).to(opt.device)
+            self.netG_B = RDDBNetA(3, 1, 64, nb=3, mode=opt.mode).to(opt.device)
 
         self.netD_A = NLayerDiscriminator(3, 64, 2).to(opt.device)
         self.netD_B = NLayerDiscriminator(1, 64, 2).to(opt.device)
@@ -286,6 +290,8 @@ class SRCycleGAN(object):
         # GAN loss D_B(G_B(B))
         self.loss_G_B = self.criterionGAN(self.netD_B(self.fake_A), True)
         # Forward cycle loss || G_B(G_A(A)) - A||
+        # instance of perception loss
+        percep_loss=losses.PerceptionLoss().to(opt.device)
         self.loss_cycle_A = self.criterionCycle(self.recl_A, self.real_A) * lambda_A * 0.5
         # Backward cycle loss || G_A(G_B(B)) - B||
         self.loss_cycle_B = self.criterionCycle(self.recl_B, self.real_B) * lambda_B * 0.5
@@ -328,6 +334,7 @@ class params(object):
         self.matrix = 0
         self.lr_policy = 'cosine'
         self.mode = 'x2'
+        self.net = 'SRdens'
 
 
 if __name__ == '__main__':
