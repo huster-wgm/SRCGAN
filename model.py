@@ -168,7 +168,7 @@ class Encoder(nn.Module):
 
 
 class RDDBNetA(nn.Module):
-    def __init__(self,in_nc, out_nc, nf, nb=3, gc = 32, mode='x2'):
+    def __init__(self,in_nc, out_nc, nf, nb, gc = 32, mode='x2'):
         super(RDDBNetA, self).__init__()
         RRDB_block_f = functools.partial(RRDB, nf=nf, gc=gc)
 
@@ -179,6 +179,7 @@ class RDDBNetA(nn.Module):
         self.upconv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.mode = mode
+        self.nb = nb
         self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
 
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
@@ -208,9 +209,15 @@ class RDDBNetA(nn.Module):
         elif self.mode == 'x2':
             fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
             fea = self.lrelu(self.upconv1(fea))
+
         fea = self.lrelu(self.HRconv(fea))
         fea = self.lrelu(self.HRconv(fea))
-        fea = self.lrelu(self.HRconv(fea))   # 多加了一层
+        fea = self.lrelu(self.HRconv(fea))
+        fea = self.lrelu(self.HRconv(fea))
+        fea = self.lrelu(self.HRconv(fea))
+        fea = self.lrelu(self.HRconv(fea))
+
+        fea = self.lrelu(self.HRconv(fea))
         out = self.conv_last(self.lrelu(self.HRconv(fea)))
         return out
 
@@ -227,6 +234,7 @@ class RDDBNetB(nn.Module):
         self.upconv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.mode = mode
+        self.nb = nb
         self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
 
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
@@ -252,6 +260,11 @@ class RDDBNetB(nn.Module):
             fea = self.lrelu(self.upconv1(fea))
         fea = self.lrelu(self.HRconv(fea))
         fea = self.lrelu(self.HRconv(fea))
+        fea = self.lrelu(self.HRconv(fea))
+        fea = self.lrelu(self.HRconv(fea))
+        fea = self.lrelu(self.HRconv(fea))
+        fea = self.lrelu(self.HRconv(fea))
+
         fea = self.lrelu(self.HRconv(fea))
         out = self.conv_last(self.lrelu(self.HRconv(fea)))
         return out
