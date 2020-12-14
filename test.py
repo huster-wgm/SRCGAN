@@ -52,19 +52,19 @@ if __name__ == '__main__':
     # Hyperparameters
     opt = params()
     ### Build model
-    netG_A2B = RDDBNetB(1, 3, 64, nb=3).to(opt.device)
-    netG_B2A = RDDBNetA(3, 1, 64, nb=3).to(opt.device)
+    netG_A2B = RDDBNetB(3, 3, 64, nb=3).to(opt.device)
+    netG_B2A = RDDBNetA(3, 3, 64, nb=3).to(opt.device)
     # load check point
-    # netGA = './checkpoints/netG_A2B_idt4_x2_0025.pth'
-    # netGB = './checkpoints/netG_B2A_idt4_x2_0025.pth'
-    checkpoint = torch.load(args.netGA)
+    netGA = './checkpoints/netG_A2B_SRtask_x2_0020.pth'
+    netGB = './checkpoints/netG_B2A_SRtask_x2_0020.pth'
+    checkpoint = torch.load(netGA)
     netG_A2B.load_state_dict(checkpoint)
-    checkpoint = torch.load(args.netGB)
+    checkpoint = torch.load(netGB)
     netG_B2A.load_state_dict(checkpoint)
     netG_A2B.eval()
     netG_B2A.eval()
-    checkA = os.path.basename(args.netGA).split('.pth')[0]
-    checkB = os.path.basename(args.netGB).split('.pth')[0]
+    checkA = os.path.basename(netGA).split('.pth')[0]
+    checkB = os.path.basename(netGB).split('.pth')[0]
     if not os.path.exists('result/'+checkA):
         os.makedirs('result/'+checkA)
     if not os.path.exists('result/'+checkB):
@@ -81,6 +81,7 @@ if __name__ == '__main__':
     for idx, sample in enumerate(data_loader):
         realA = sample['src'].to(opt.device)
         realB = sample['tar'].to(opt.device)
+        realA = torch.cat([realA, realA, realA], dim=1)
         fake_B = netG_A2B(realA)
         fake_A = netG_B2A(realB)
         imsave('result/'+checkA+'/test_%06d.png' % (idx), tensor2image(fake_B))
