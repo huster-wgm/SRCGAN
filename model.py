@@ -168,15 +168,14 @@ class Encoder(nn.Module):
 
 
 class RDDBNetA(nn.Module):
-    def __init__(self,in_nc, out_nc, nf, nb, gc = 32, mode='x2'):
+    def __init__(self, in_nc, out_nc, nf, nb, gc = 32, mode='x2'):
         super(RDDBNetA, self).__init__()
         RRDB_block_f = functools.partial(RRDB, nf=nf, gc=gc)
 
         self.conv_first = nn.Conv2d(in_nc, nf, 3,1,1, bias=True)
         self.RRDB_trunk = make_layer(RRDB_block_f, nb)
         self.trunk_conv = nn.Conv2d(nf, nf,3,1,1, bias=True)
-        self.upconv1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.upconv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.upconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.mode = mode
         self.nb = nb
@@ -204,18 +203,12 @@ class RDDBNetA(nn.Module):
         fea = self.conv_first(x)
         trunk = self.trunk_conv(self.RRDB_trunk(fea))
         if self.mode == 'x4':
-            fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
-            fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
+            fea = self.lrelu(self.upconv(F.interpolate(fea, scale_factor=2, mode='nearest')))
+            fea = self.lrelu(self.upconv(F.interpolate(fea, scale_factor=2, mode='nearest')))
         elif self.mode == 'x2':
-            fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=0.5, mode='nearest')))
-            fea = self.lrelu(self.upconv1(fea))
-
-        fea = self.lrelu(self.HRconv(fea))
-        fea = self.lrelu(self.HRconv(fea))
-        fea = self.lrelu(self.HRconv(fea))
-        fea = self.lrelu(self.HRconv(fea))
-        fea = self.lrelu(self.HRconv(fea))
-        fea = self.lrelu(self.HRconv(fea))
+            fea = self.lrelu(self.upconv(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        elif self.mode == 'x1':
+            fea = self.lrelu(self.upconv(fea))
 
         fea = self.lrelu(self.HRconv(fea))
         out = self.conv_last(self.lrelu(self.HRconv(fea)))
