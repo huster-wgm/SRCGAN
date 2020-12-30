@@ -9,7 +9,7 @@ import losses
 import argparse
 from dataset import load_dataset
 from torch.utils.data import DataLoader
-from model import RDDBNetA, RDDBNetB, SRDenseNetA, SRDenseNetB
+from model import *
 import itertools
 import numpy as np
 from utils import Logger
@@ -27,33 +27,35 @@ class CasSRC(object):
         """
         self.opt = opt
         # define networks (both Generators and discriminators)
-        self.netG_A2C = RDDBNetA(1, 1, 64, nb=3, mode=opt.mode).to(opt.device)
-        self.netG_C2B = RDDBNetA(1, 3, 64, nb=3, mode='x1').to(opt.device)
+        self.netG_A2C = eval(opt.SRModel)(1, 1, opt.up).to(opt.device)
+        self.netG_C2B = eval(opt.CModel)(1, 3).to(opt.device)
         # define loss functions
-        self.criterionSR = losses.L1Loss()
+        self.criterionSR = losses.MSELoss()
         self.criterionC = losses.L1Loss()
+        self.criterionPSNR = losses.PSNRLoss()
         # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
         self.optimizers = []
-        self.optimizer_G = torch.optim.Adam(self.netG_A2C.parameters(), lr = opt.lr, betas=(opt.beta1, 0.999))
-        self.optimizer_D = torch.optim.Adam(self.netG_C2B.parameters(), lr = opt.lr, betas=(opt.beta1, 0.999))
+        self.optimizer_G = torch.optim.Adam(self.netG_A2C.parameters(), 
+                                            lr = opt.lr)
+        self.optimizer_D = torch.optim.Adam(self.netG_C2B.parameters(), 
+                                            lr = opt.lr)
         self.optimizers.append(self.optimizer_G)
         self.optimizers.append(self.optimizer_D)
 
     def update_lr(self, opt):
         for optimizer in self.optimizers:
-            if opt.lr_policy == 'linear':
-                lr_l = 1.0 - max(0, epoch + opt.epoch_count - opt.n_epochs) / float(opt.n_epochs_decay + 1)
-                scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_l)
-                scheduler.step()
-            elif opt.lr_policy == 'step':
+            if opt.lr_policy == 'step':
                 scheduler = lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
                 scheduler.step()
             elif opt.lr_policy == 'plateau':
-                scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.2, threshold=0.01,
+                scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 
+                                                           mode='min', 
+                                                           factor=0.2, threshold=0.01,
                                                            patience=5)
                 scheduler.step(opt.matrix)
             elif opt.lr_policy == 'cosine':
-                scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=opt.num_epochs, eta_min=0)
+                scheduler = lr_scheduler.CosineAnnealingLR(optimizer, 
+                                                           T_max=opt.num_epochs, eta_min=0)
                 scheduler.step()
             else:
                 return NotImplementedError('learning rate policy [%s] is not implemented', opt.lr_policy)
@@ -71,17 +73,23 @@ class CasSRC(object):
                 for param in net.parameters():
                     param.requires_grad = requires_grad
 
+    def init_log(self):
+        self.loss_sr = []
+        self.loss_c = []
+        self.psnr_sr = []
+        self.psnr_c = []
+
     def forwardSR(self, realB):
         self.real_B = realB
-        if self.opt.mode == "x2":
-            sf = 2
-        else:
-            sf = 4
         # Y = 0.2125 R + 0.7154 G + 0.0721 B [RGB2Gray, 3=>1 ch]
         self.real_BC = 0.2125 * self.real_B[:,:1,:,:] + \
                        0.7154 * self.real_B[:,1:2,:,:] + \
                        0.0721 * self.real_B[:,2:3,:,:]
-        self.real_BA = F.interpolate(self.real_BC, scale_factor=1. / sf)
+        # image blurring by opt.up
+        self.real_BA = F.interpolate(
+            self.real_BC, scale_factor=1./self.opt.up, mode="bilinear")
+#         self.real_BA = F.interpolate(
+#             self.real_BA, scale_factor=self.opt.up, mode="nearest")
         self.fake_BC = self.netG_A2C(self.real_BA)
 #         print("realB =>", self.real_B.size())
 #         print("realBA =>", self.real_BA.size())
@@ -93,23 +101,40 @@ class CasSRC(object):
 #         print("fakeBB =>", self.fake_BB.size())
 
     def transfer(self, realA):
-        self.real_A = realA
-        self.fake_AC = self.netG_A2C(self.real_A)
-        self.fake_AB = self.netG_C2B(self.fake_AC)
+        self.real_A = F.interpolate(
+            realA, scale_factor=1./self.opt.up, mode="bilinear")
+        self.netG_A2C.eval()
+        self.netG_C2B.eval()
+        self.fake_AC = self.netG_A2C(self.real_A.detach())
+        self.fake_AB = self.netG_C2B(self.fake_AC.detach())
 #         print("fakeAC =>", self.fake_AC.size())
 #         print("fakeAC =>", self.fake_AC.size())
 #         print("fakeAB =>", self.fake_AB.size())
 
     def backward_D(self):
-        self.loss_D = self.criterionC(self.fake_BB, self.real_B)
-        self.loss_D.backward()
+        self.loss_C = self.criterionC(self.fake_BB, self.real_B)
+        self.loss_C.backward()
+        self.loss_c.append(self.loss_C.item())
 
     def backward_G(self):
-        self.loss_G = self.criterionSR(self.fake_BC, self.real_BC)
-        self.loss_G.backward()
+        self.loss_SR = self.criterionSR(self.fake_BC, self.real_BC)
+        self.loss_SR.backward()
+        self.loss_sr.append(self.loss_SR.item())
+
+    def validate(self,):
+        """Calculate losses, gradients, and update network weights; 
+        called in every training iteration"""
+        # forward
+        self.psnr_SR = self.criterionPSNR(self.fake_BC.detach(), self.real_BC.detach())
+        self.psnr_C = self.criterionPSNR(self.fake_BB.detach(), self.real_B.detach())
+        self.psnr_sr.append(self.psnr_SR.item())
+        self.psnr_c.append(self.psnr_C.item())
 
     def optimize_parameters(self, realA, realB):
-        """Calculate losses, gradients, and update network weights; called in every training iteration"""
+        """Calculate losses, gradients, and update network weights; 
+        called in every training iteration"""
+        self.netG_A2C.train()
+        self.netG_C2B.train()
         # forward
         self.forwardSR(realB)
         # G_A and G_B
@@ -125,51 +150,61 @@ class CasSRC(object):
         self.optimizer_D.step()
         # transfer B => A
         self.transfer(realA)
+        self.validate()
 
 
 class params(object):
     def __init__(self):
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.lr = 1e-4
-        self.beta1 = 0.5
         self.batch_size = 1
         self.num_works = 2
-        self.num_epochs = 25
-        self.n_epochs_decay = 100
+        self.num_epochs = 50
         self.matrix = 0
         self.lr_policy = 'cosine'
 
 
 if __name__ == '__main__':
     parse =  argparse.ArgumentParser()
-    parse.add_argument('--mode', type=str)
+    parse.add_argument('--SRModel', type=str, default="ESPCN")
+    parse.add_argument('--CModel', type=str, default="ResDeconv")
+    parse.add_argument('--up', type=int, default=2)
     args = parse.parse_args()
     # Hyperparameters
     opt = params()
-    opt.mode = args.mode
+    opt.up = args.up
+    opt.CModel = args.CModel
+    opt.SRModel = args.SRModel
     ### Build model
     model = CasSRC(opt)
     ### Data preparation
-    trainset, valset, testset = load_dataset('Sat2Aer{}'.format(opt.mode))
+    trainset, valset, testset = load_dataset('Sat2Aerx1')
     print("Starting Training Loop...")
     # For each epoch
     logger = Logger(len(trainset), opt.num_epochs)
     for epoch in range(1, opt.num_epochs+1):
         # setup data loader
         data_loader = DataLoader(trainset, opt.batch_size, num_workers=opt.num_works,
-                                 shuffle=True, pin_memory=True, )
+                                 shuffle=True, pin_memory=True )
         model.update_lr(opt)
+        model.init_log()
         for idx, sample in enumerate(data_loader):
             realA = sample['src'].to(opt.device)
+#             realA -= 0.5
             realB = sample['tar'].to(opt.device)
+#             realB -= 0.5
             model.optimize_parameters(realA, realB)
+            idx += 1
             ### 可视化 ###
-            if idx % 20 == 0:
+            if idx % 100 == 0:
                 logger.log(
                     nepoch=epoch,
                     niter=idx,
-                    losses={'loss_G': model.loss_G.item(),
-                            'loss_D': model.loss_D.item()},
+                    losses={'loss_SR': sum(model.loss_sr)/len(model.loss_sr),
+                            'psnr_SR': sum(model.psnr_sr)/len(model.psnr_sr),
+                            'loss_C' : sum(model.loss_c)/len(model.loss_c),
+                            'psnr_C' : sum(model.psnr_c)/len(model.psnr_c),
+                           },
                     images={
                         'real_A' : model.real_A, 
                         'fake_AC': model.fake_AC,
@@ -181,12 +216,11 @@ if __name__ == '__main__':
                         'fake_BB': model.fake_BB,
                            }
                 )
-
-             ### 可视化 ###
-        if epoch % 5 == 0:
-            netGA = './checkpoints/netG_A2C_%s_%04d.pth' % (opt.mode, epoch)
-            netGB = './checkpoints/netG_C2B_%s_%04d.pth' % (opt.mode, epoch)
+                model.init_log()
+        ### 可视化 ###
+        if epoch % 25 == 0:
+            netGA = './checkpoints/%s_A2C_x%d_%04d.pth' % (opt.SRModel, opt.up, epoch)
+            netGB = './checkpoints/%s_C2B_x%d_%04d.pth' % (opt.CModel, opt.up, epoch)
             torch.save(model.netG_A2C.state_dict(), netGA)
             torch.save(model.netG_C2B.state_dict(), netGB)
-            import os
-            os.system('python testCas.py --netGA {} --netGB {}'.format(netGA, netGB))
+#             os.system('python ./src/testCas.py --netGA {} --netGB {}'.format(netGA, netGB))

@@ -1,16 +1,193 @@
 import functools
+import math
 import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 
-ngpu =1
-device = torch.device("cuda:0" if (torch.cuda.is_available() and ngpu > 0)else "cpu")
+
+
 def make_layer(block, n_layers):
     layers = []
     for _ in range(n_layers):
         layers.append(block())
     return nn.Sequential(*layers)
+
+
+def get_deconv_params(upscale_factor):
+    """
+    args:
+        ratio:(str) upsample level
+        H_out =(H_in−1)×stride[0]−2×pad[0]+ksize[0]+output_padding[0] 
+    """
+    if upscale_factor==2:
+        kernel_size = 2
+        stride=2
+    elif upscale_factor==4:
+        kernel_size = 2
+        stride=4
+    elif upscale_factor==8:
+        kernel_size = 4
+        stride=8
+    output_padding = (stride-kernel_size)
+    return kernel_size, stride, output_padding
+
+
+def deconv(in_planes, out_planes, upscale_factor=2):
+    """2d deconv"""
+    kernel_size, stride, opad = get_deconv_params(upscale_factor)
+    # print("DECONV", kernel_size, stride, opad)
+    return nn.ConvTranspose2d(in_planes, out_planes, 
+                              kernel_size=kernel_size, 
+                              stride=stride, 
+                              padding=0, 
+                              bias=False,
+                              output_padding=opad,
+                              groups=1)
+
+
+class ESPCN(nn.Module):
+    """
+    Superresolution using an efficient sub-pixel convolutional neural network
+    Reference:
+        CVPR2016: Real-Time Single Image and Video Super-Resolution Using an Efficient Sub-Pixel Convolutional Neural Network
+        code: https://github.com/pytorch/examples/tree/master/super_resolution
+        PixelShuffle: https://blog.csdn.net/gdymind/article/details/82388068
+    """
+
+    def __init__(self,
+                 nb_channel=3,
+                 upscale_factor=2,
+                 base_kernel=64):
+        super(ESPCN, self).__init__()
+        kernels = [int(x * base_kernel) for x in [1, 1, 1 / 2]]
+
+        self.relu = nn.ReLU(True)
+        self.conv1 = nn.Conv2d(
+            nb_channel, kernels[0], kernel_size=5, stride=1, padding=2)
+        self.conv2 = nn.Conv2d(
+            kernels[0], kernels[1], kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(
+            kernels[1], kernels[2], kernel_size=3, stride=1, padding=1)
+        self.conv4 = nn.Conv2d(
+            kernels[2], base_kernel * upscale_factor ** 2, kernel_size=3, stride=1, padding=1)
+        self.pixel_shuffle = nn.PixelShuffle(upscale_factor)
+        self.conv5 = nn.Conv2d(
+            base_kernel, nb_channel, kernel_size=3, stride=1, padding=1)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.relu(self.conv3(x))
+        x = self.pixel_shuffle(self.conv4(x))
+        return self.conv5(x)
+
+
+class SRCNN(torch.nn.Module):
+    """
+    Superresolution using a Deep Convolutional Network
+    Reference:
+        ECCV2014: Learning a Deep Convolutional Network for Image Super-Resolution
+    """
+
+    def __init__(self,
+                 nb_channel=3,
+                 upscale_factor=2,
+                 base_kernel=64):
+        super(SRCNN, self).__init__()
+        kernels = [int(x * base_kernel) for x in [1, 1 / 2]]
+        self.up = upscale_factor
+        self.relu = nn.ReLU(True)
+        self.conv1 = nn.Conv2d(
+            nb_channel, kernels[0], kernel_size=9, stride=1, padding=4)
+        self.conv2 = nn.Conv2d(
+            kernels[0], kernels[1], kernel_size=1, stride=1, padding=0)
+        self.conv3 = nn.Conv2d(
+            kernels[1], nb_channel, kernel_size=5, stride=1, padding=2)
+
+    def forward(self, x):
+        x = F.interpolate(x, scale_factor=self.up, mode="nearest")
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.relu(self.conv3(x))
+        return x
+
+
+class EDSR(nn.Module):
+    """
+    https://github.com/icpm/super-resolution/edit/master/EDSR/model.py
+    """
+    def __init__(self, nb_channel, upscale_factor=2, base_channel=64, num_residuals=50):
+        super(EDSR, self).__init__()
+
+        self.input_conv = nn.Conv2d(nb_channel, base_channel, kernel_size=3, stride=1, padding=1)
+
+        resnet_blocks = []
+        for _ in range(num_residuals):
+            resnet_blocks.append(ResnetBlock(base_channel, kernel=3, stride=1, padding=1))
+        self.residual_layers = nn.Sequential(*resnet_blocks)
+
+        self.mid_conv = nn.Conv2d(base_channel, base_channel, kernel_size=3, stride=1, padding=1)
+
+        upscale = []
+        for _ in range(int(math.log2(upscale_factor))):
+            upscale.append(deconv(base_channel, base_channel, upscale_factor=2))
+        self.upscale_layers = nn.Sequential(*upscale)
+
+        self.output_conv = nn.Conv2d(base_channel, nb_channel, kernel_size=3, stride=1, padding=1)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        x = self.input_conv(x)
+        residual = x
+        x = self.residual_layers(x)
+        x = self.mid_conv(x)
+        x = torch.add(x, residual)
+        x = self.upscale_layers(x)
+        x = self.output_conv(x)
+        return x
+
+
+class ResnetBlock(nn.Module):
+    def __init__(self, num_channel, kernel=3, stride=1, padding=1):
+        super(ResnetBlock, self).__init__()
+        self.conv1 = nn.Conv2d(num_channel, num_channel, kernel, stride, padding)
+        self.conv2 = nn.Conv2d(num_channel, num_channel, kernel, stride, padding)
+        self.gn = nn.GroupNorm(32, num_channel) # replace BN => GN
+        self.activation = nn.LeakyReLU(negative_slope=0.2, inplace=True)
+
+    def forward(self, x):
+        residual = x
+        x = self.gn(self.conv1(x))
+        x = self.activation(x)
+        x = self.gn(self.conv2(x))
+        x = torch.add(x, residual)
+        return x
+
+
+class PixelShuffleBlock(nn.Module):
+    def __init__(self, in_channel, out_channel, upscale_factor, kernel=3, stride=1, padding=1):
+        super(PixelShuffleBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_channel, out_channel * upscale_factor ** 2, kernel, stride, padding)
+        self.ps = nn.PixelShuffle(upscale_factor)
+#         self.conv2 = nn.Conv2d(out_channel, out_channel, kernel, stride, padding)
+
+    def forward(self, x):
+        x = self.ps(self.conv1(x))
+        return x
 
 
 class ResidualDenseBlock_5(nn.Module):
@@ -167,9 +344,9 @@ class Encoder(nn.Module):
 
 
 
-class RDDBNetA(nn.Module):
+class RDDBNet(nn.Module):
     def __init__(self, in_nc, out_nc, nf, nb, gc = 32, mode='x2'):
-        super(RDDBNetA, self).__init__()
+        super(RDDBNet, self).__init__()
         RRDB_block_f = functools.partial(RRDB, nf=nf, gc=gc)
 
         self.conv_first = nn.Conv2d(in_nc, nf, 3,1,1, bias=True)
@@ -496,14 +673,14 @@ class DenseBlock(nn.Module):
 
 
 class SRDenseNetA(nn.Module):
-    def __init__(self, in_nc, out_nc, num_channels=1, growth_rate=16, num_blocks=8, num_layers=8, mode='x2'):
+    def __init__(self, in_nc, out_nc, nb_channel=1, growth_rate=16, num_blocks=8, num_layers=8, mode='x2'):
         super(SRDenseNetA, self).__init__()
         self.mode = mode
         self.conv_first = nn.Conv2d(in_nc, 1, 3, 1, 1, bias=True)
 
 
         # low level features
-        self.conv = ConvLayer(num_channels, growth_rate * num_layers, 3)
+        self.conv = ConvLayer(nb_channel, growth_rate * num_layers, 3)
 
         # high level features
         self.dense_blocks = []
@@ -524,7 +701,7 @@ class SRDenseNetA(nn.Module):
         )
 
         # reconstruction layer
-        self.reconstruction = nn.Conv2d(256, num_channels, kernel_size=3, padding=3 // 2)
+        self.reconstruction = nn.Conv2d(256, nb_channel, kernel_size=3, padding=3 // 2)
 
         self.conv_last = nn.Conv2d(1, out_nc, 3, 1, 1, bias=True)
 
@@ -553,14 +730,14 @@ class SRDenseNetA(nn.Module):
 
 
 class SRDenseNetB(nn.Module):
-    def __init__(self, in_nc, out_nc, num_channels=1, growth_rate=16, num_blocks=8, num_layers=8, mode='x2'):
+    def __init__(self, in_nc, out_nc, nb_channel=1, growth_rate=16, num_blocks=8, num_layers=8, mode='x2'):
         super(SRDenseNetB, self).__init__()
         self.mode = mode
         self.conv_first = nn.Conv2d(in_nc, 1, 3, 1, 1, bias=True)
 
 
         # low level features
-        self.conv = ConvLayer(num_channels, growth_rate * num_layers, 3)
+        self.conv = ConvLayer(nb_channel, growth_rate * num_layers, 3)
 
         # high level features
         self.dense_blocks = []
@@ -581,7 +758,7 @@ class SRDenseNetB(nn.Module):
         )
 
         # reconstruction layer
-        self.reconstruction = nn.Conv2d(256, num_channels, kernel_size=3, padding=3 // 2)
+        self.reconstruction = nn.Conv2d(256, nb_channel, kernel_size=3, padding=3 // 2)
 
         self.conv_last = nn.Conv2d(1, out_nc, 3, 1, 1, bias=True)
 

@@ -2,7 +2,7 @@ import random
 import time
 import datetime
 import sys
-
+import os
 import torch
 import cv2
 from visdom import Visdom
@@ -12,6 +12,7 @@ dsize = (256, 256)
 
 def tensor2image(tensor):
     image = tensor[0].cpu().float().numpy()*255
+#     image += 127
     if image.shape[0] == 1:
         image = np.tile(image, (3,1,1))
     image = image.astype(np.uint8).transpose((1,2,0))
@@ -28,19 +29,20 @@ class Logger():
 
     def log(self, nepoch, niter, losses=None, images=None):
         period = time.time() - self.init_time
-        sys.stdout.write('\n Epoch => %03d/%03d [%04d/%04d] >> | ' % 
-                         (nepoch, self.n_epochs, niter, self.n_iters))
+        sys.stdout.write('\n Epoch %02d [%04d/%04d] >> ' % 
+                         (nepoch, niter, self.n_iters))
         for k, v in losses.items():
-            sys.stdout.write('%s: %.4f | ' % (k, v))
+            sys.stdout.write('%s: %.3f | ' % (k, v))
 
-        iters_done = self.n_iters * nepoch + niter + 1
+        iters_done = self.n_iters * (nepoch -1) + niter
         iters_left = self.n_iters * self.n_epochs - iters_done
-        sys.stdout.write('ETA: %s' % 
-                         (datetime.timedelta(seconds=iters_left/iters_done*period)))
+        eta = iters_left / iters_done * period
+        sys.stdout.write('ETA: %s' % (datetime.timedelta(seconds = eta)))
 
         # Draw images
         for k, v in images.items():
-            self.viz.image(tensor2image(v.data), 
+            img = tensor2image(v.data)
+            self.viz.image(img, 
                            win = k,
                            opts = {'title' : k}
                           )

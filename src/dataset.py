@@ -22,7 +22,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 DIR = os.path.dirname(os.path.abspath(__file__))
-Dataset_DIR = os.path.join(DIR, './dataset/')
+Dataset_DIR = os.path.join(DIR, '../dataset/')
 
 class Basic(Dataset):
     def __init__(
