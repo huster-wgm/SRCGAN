@@ -132,3 +132,4 @@ checkpoints/*.pth
 dataset/*
 result/*
 vis/*
+visResult/*

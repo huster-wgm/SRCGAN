@@ -14,6 +14,11 @@ from torch.utils.data import DataLoader
 from model import *
 from skimage.io import imsave
 from utils import Logger
+from skimage.color import lab2rgb, rgb2lab, rgb2gray
+
+
+DIR = os.path.dirname(os.path.abspath(__file__))
+Check_DIR = os.path.join(DIR, '../checkpoints/')
 
 
 class params(object):
@@ -23,12 +28,18 @@ class params(object):
         self.num_works = 2
 
 
-def tensor2image(tensor):
-    image = tensor.detach()[0].cpu().float().numpy()*255
-    image = image.astype(np.uint8).transpose((1,2,0))
-    if image.shape[2] == 1:
-        image = image[:,:,0]
-    return image.astype(np.uint8)
+def tensor2img(tensor, ver='RGB'):
+    if ver == "RGB":
+        img = tensor.detach()[0].cpu().numpy().transpose((1,2,0))
+        img = (img * 255).astype("uint8")
+        if img.shape[2] == 1:
+            img = img[:,:,0]
+    else:
+        lab = tensor.detach()[0].cpu().numpy().transpose((1,2,0))
+        lab[:,:,:1] = lab[:,:,:1] * 100
+        lab[:,:,1:] = lab[:,:,1:] * 255 - 128
+        img = (lab2rgb(lab.astype("float64")) * 255).astype("uint8")
+    return img
 
 
 if __name__ == '__main__':
@@ -41,7 +52,7 @@ if __name__ == '__main__':
     checkA = os.path.basename(args.netGA).split('.pth')[0].split('_')
     checkB = os.path.basename(args.netGB).split('.pth')[0].split('_')
     ### Data preparation
-    trainset, valset, testset = load_dataset('Sat2Aerx1')
+    trainset, valset, testset = load_dataset('Sat2Aerx1', ver="G2LAB")
     ### makedirs
     save_dirA = './result/A_'+"_".join([checkA[0], checkA[2], checkA[3]])
     save_dirB = './result/B_'+"_".join([checkA[0], checkA[2], checkA[3]])
@@ -49,11 +60,11 @@ if __name__ == '__main__':
         os.makedirs(save_dirA)
         os.makedirs(save_dirB)
     ### Build model
-    netG_A2C = eval(checkA[0])(1, 1, int(checkA[2][1])).to(opt.device)
-    netG_C2B = eval(checkB[0])(1, 3).to(opt.device)
+    netG_A2C = eval(checkA[0].replace('@G2LAB', ''))(1, 1, int(checkA[2][1])).to(opt.device)
+    netG_C2B = eval(checkB[0].replace('@G2LAB', ''))(1, 2).to(opt.device)
     # load check point
-    netG_A2C.load_state_dict(torch.load(args.netGA))
-    netG_C2B.load_state_dict(torch.load(args.netGB))
+    netG_A2C.load_state_dict(torch.load(os.path.join(Check_DIR, os.path.basename(args.netGA))))
+    netG_C2B.load_state_dict(torch.load(os.path.join(Check_DIR, os.path.basename(args.netGB))))
     netG_A2C.eval()
     netG_C2B.eval()
     print("Starting test Loop...")
@@ -68,24 +79,27 @@ if __name__ == '__main__':
         realB = sample['tar'].to(opt.device)
 #         realB -= 0.5
         # Y = 0.2125 R + 0.7154 G + 0.0721 B [RGB2Gray, 3=>1 ch]
-        realBC = 0.2125 * realB[:,:1,:,:] + \
-                 0.7154 * realB[:,1:2,:,:] + \
-                 0.0721 * realB[:,2:3,:,:]
+        realBC = realB[:,:1,:,:]
         sf = int(checkA[2][1])
-        realBA = nn.functional.interpolate(realBC, scale_factor=1. / sf)
-#         realBA = nn.functional.interpolate(realBA, scale_factor=sf)
-        realAA = nn.functional.interpolate(realA, scale_factor=1. / sf)
-        fake_AB = netG_C2B(netG_A2C(realAA))
-        fake_BB = netG_C2B(netG_A2C(realBA))
+        realBA = nn.functional.interpolate(realBC, scale_factor=1. / sf, mode='bilinear')
+        realBA = nn.functional.interpolate(realBA, scale_factor=sf, mode='bilinear')
+#         realAA = nn.functional.interpolate(realA, scale_factor=1. / sf)
+        realAA = realA
+        fake_AC = netG_A2C(realAA)
+        fake_AB = netG_C2B(fake_AC)
+        fake_BC = netG_A2C(realBA)
+        fake_BB = netG_C2B(fake_BC)
+        fakeAB = torch.cat([fake_AC, fake_AB], dim=1)
+        fakeBB = torch.cat([fake_BC, fake_BB], dim=1)
         # calc performances
         acc = ""
         for i, evaluator in enumerate(evaluators):
-            p = evaluator(fake_BB.detach(), realB.detach()).item()
+            p = evaluator(fakeBB.detach(), realB.detach()).item()
             acc += " {}:{:0.2f};".format(repr(evaluator), p)
             performs[i].append(p)
         # save generate image
-        imsave(save_dirA+'/%s' % (testset.datalist[idx]), tensor2image(fake_AB))
-        imsave(save_dirB+'/%s' % (testset.datalist[idx]), tensor2image(fake_BB))
+        imsave(save_dirA+'/%s' % (testset.datalist[idx]), tensor2img(fakeAB, 'LAB'))
+        imsave(save_dirB+'/%s' % (testset.datalist[idx]), tensor2img(fakeBB, 'LAB'))
         sys.stdout.write('\rGenerated %s (%04d / %04d) >> %s' % 
                          (testset.datalist[idx], idx, len(data_loader), acc))
     # save performances

@@ -28,7 +28,7 @@ class CasSRC(object):
         self.opt = opt
         # define networks (both Generators and discriminators)
         self.netG_A2C = eval(opt.SRModel)(1, 1, opt.up).to(opt.device)
-        self.netG_C2B = eval(opt.CModel)(1, 3).to(opt.device)
+        self.netG_C2B = eval(opt.CModel)(1, 2).to(opt.device)
         # define loss functions
         self.criterionSR = losses.L1Loss()
         self.criterionC = losses.L1Loss()
@@ -80,16 +80,13 @@ class CasSRC(object):
         self.psnr_c = []
 
     def forwardSR(self, realB):
-        self.real_B = realB
-        # Y = 0.2125 R + 0.7154 G + 0.0721 B [RGB2Gray, 3=>1 ch]
-        self.real_BC = 0.2125 * self.real_B[:,:1,:,:] + \
-                       0.7154 * self.real_B[:,1:2,:,:] + \
-                       0.0721 * self.real_B[:,2:3,:,:]
+        self.real_B = realB[:,1:,:,:] # ab
+        self.real_BC = realB[:,:1,:,:] # L
         # image blurring by opt.up
         self.real_BA = F.interpolate(
             self.real_BC, scale_factor=1./self.opt.up, mode="bilinear")
-#         self.real_BA = F.interpolate(
-#             self.real_BA, scale_factor=self.opt.up, mode="nearest")
+        self.real_BA = F.interpolate(
+            self.real_BA, scale_factor=self.opt.up, mode="bilinear")
         self.fake_BC = self.netG_A2C(self.real_BA)
 #         print("realB =>", self.real_B.size())
 #         print("realBA =>", self.real_BA.size())
@@ -101,8 +98,9 @@ class CasSRC(object):
 #         print("fakeBB =>", self.fake_BB.size())
 
     def transfer(self, realA):
-        self.real_A = F.interpolate(
-            realA, scale_factor=1./self.opt.up, mode="bilinear")
+#         self.real_A = F.interpolate(
+#             realA, scale_factor=1./self.opt.up, mode="bilinear")
+        self.real_A = realA
         self.netG_A2C.eval()
         self.netG_C2B.eval()
         self.fake_AC = self.netG_A2C(self.real_A.detach())
@@ -178,7 +176,7 @@ if __name__ == '__main__':
     ### Build model
     model = CasSRC(opt)
     ### Data preparation
-    trainset, valset, testset = load_dataset('Sat2Aerx1')
+    trainset, valset, testset = load_dataset('Sat2Aerx1', ver='G2LAB')
     print("Starting Training Loop...")
     # For each epoch
     logger = Logger(len(trainset), opt.num_epochs)
@@ -200,6 +198,7 @@ if __name__ == '__main__':
                 logger.log(
                     nepoch=epoch,
                     niter=idx,
+                    ver='G2LAB',
                     losses={'loss_SR': sum(model.loss_sr)/len(model.loss_sr),
                             'psnr_SR': sum(model.psnr_sr)/len(model.psnr_sr),
                             'loss_C' : sum(model.loss_c)/len(model.loss_c),
@@ -208,19 +207,18 @@ if __name__ == '__main__':
                     images={
                         'real_A' : model.real_A, 
                         'fake_AC': model.fake_AC,
-                        'fake_AB': model.fake_AB,
+                        'fake_AB': torch.cat([model.fake_AC, model.fake_AB], dim=1),
                         'real_BA': model.real_BA,
                         'real_BC': model.real_BC,
-                        'real_B' : model.real_B, 
+                        'real_B' : torch.cat([model.real_BC, model.real_B], dim=1), 
                         'fake_BC': model.fake_BC, 
-                        'fake_BB': model.fake_BB,
+                        'fake_BB': torch.cat([model.fake_BC, model.fake_BB], dim=1),
                            }
                 )
                 model.init_log()
         ### 可视化 ###
         if epoch % 25 == 0:
-            netGA = './checkpoints/%s_A2C_x%d_%04d.pth' % (opt.SRModel, opt.up, epoch)
-            netGB = './checkpoints/%s_C2B_x%d_%04d.pth' % (opt.CModel, opt.up, epoch)
+            netGA = './checkpoints/%s@G2LAB_A2C_x%d_%04d.pth' % (opt.SRModel, opt.up, epoch)
+            netGB = './checkpoints/%s@G2LAB_C2B_x%d_%04d.pth' % (opt.CModel, opt.up, epoch)
             torch.save(model.netG_A2C.state_dict(), netGA)
             torch.save(model.netG_C2B.state_dict(), netGB)
-#             os.system('python ./src/testCas.py --netGA {} --netGB {}'.format(netGA, netGB))

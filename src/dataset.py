@@ -174,6 +174,7 @@ class G2RGB(Basic):
 
         self.src_ch = 1
         self.tar_ch = 3
+        self.ver = "G2RGB"
 
     def __getitem__(self, idx):
         src_file = self.srcpath % self.datalist[idx]
@@ -208,23 +209,79 @@ class G2RGB(Basic):
         if src_rgb.shape[:2] != tar_rgb.shape[:2]:
             src_rgb = cv2.resize(src_rgb, dsize=tar_rgb.shape[:2][::-1])
         vis_img = np.concatenate([src_rgb, tar_rgb], axis=1)
-        save_dir = os.path.join(DIR, "./example", self.root)
+        save_dir = os.path.join(DIR, "../example", self.root+self.ver)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        imsave("{}/{}-{}.png".format(save_dir, self.split, idx), vis_img)
+
+        
+class G2LAB(Basic):
+    def __init__(
+            self, root, split='all', transform=None):
+        """
+        8bit RGB information.
+        Args:
+            root (str): root of dataset
+            split (str): part of the dataset
+            transform (callable, optional): Optional transform to be applied on a sample.
+        """
+        super().__init__(root, split, transform)
+
+        self.src_ch = 1
+        self.tar_ch = 3
+        self.ver = 'G2LAB'
+
+    def __getitem__(self, idx):
+        src_file = self.srcpath % self.datalist[idx]
+        tar_file = self.tarpath % self.datalist[idx]
+
+        src = Image.open(src_file).convert('RGB')
+        tar = Image.open(tar_file).convert('RGB')
+        sample = {'src': src, 'tar': tar}
+        if self.transform:
+            sample = self.transform(sample)
+        else:
+            sample['src'] = np.array(sample['src'])
+            sample['tar'] = np.array(sample['tar'])
+        # src => arr => tensor(L)
+        src = self._arr2gray(sample['src'])
+        # tar => arr => tensor(LAB)
+        tar = self._arr2lab(sample['tar'])
+        sample = {"src":src,
+                  "tar":tar,
+                  "idx":idx,
+                 }
+        return sample
+
+    def show(self, idx):
+        sample = self.__getitem__(idx)
+        # tensor to array
+        src = sample['src'].numpy().transpose((1, 2, 0))
+        tar = sample['tar'].numpy().transpose((1, 2, 0))
+        # showPixelRange(src, channels=['NIR'])
+        # showPixelRange(tar, channels=['A', 'B'])
+        # convert array to RGB img
+        src_rgb = self._rgb2img(src)
+        tar_rgb = self._lab2img(tar)
+        if src_rgb.shape[:2] != tar_rgb.shape[:2]:
+            src_rgb = cv2.resize(src_rgb, dsize=tar_rgb.shape[:2][::-1])
+        vis_img = np.concatenate([src_rgb, tar_rgb], axis=1)
+        save_dir = os.path.join(DIR, "../example", self.root+self.ver)
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         imsave("{}/{}-{}.png".format(save_dir, self.split, idx), vis_img)
 
 
-
-def load_dataset(root, mode="training"):
+def load_dataset(root, ver = "G2RGB", mode = "training"):
     """
     Args:
         root (str): root of dataset
         version (str): version of dataset
         mode (str): ['training', 'evaluating']
     """
-    trainset = G2RGB(root=root, split="train")
-    valset = G2RGB(root=root, split="val")
-    testset = G2RGB(root=root, split="test")
+    trainset = eval(ver)(root=root, split="train")
+    valset = eval(ver)(root=root, split="val")
+    testset = eval(ver)(root=root, split="test")
     return trainset, valset, testset
 
 
@@ -234,19 +291,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='ArgumentParser')
     parser.add_argument('-idx', type=int, default=0,
                         help='index of sample image')
-    parser.add_argument('-root', type=str, default='Sat2Aerx4',
+    parser.add_argument('-root', type=str, default='Sat2Aerx1',
                         help='root of the dataset')
     args = parser.parse_args()
     idx = args.idx
     root = args.root
-    for stage in ["training", "testing"]:
-        trainset, valset, testset = load_dataset(root, stage)
-        # print("Load train set = {} examples, val set = {} examples".format(
-        #     len(trainset), len(valset)))
-        sample = trainset[idx]
-        trainset.show(idx)
-        valset.show(idx)
-        testset.show(idx)
-        print("Tensor size of {}/{}".format(root, stage))
-        print("\tsrc:", sample["src"].shape,
-                "tar:", sample["tar"].shape,)
+    for ver in ["G2RGB", "G2LAB"]:
+        for stage in ["training", "testing"]:
+            trainset, valset, testset = load_dataset(root, ver, stage)
+            # print("Load train set = {} examples, val set = {} examples".format(
+            #     len(trainset), len(valset)))
+            sample = trainset[idx]
+            trainset.show(idx)
+            valset.show(idx)
+            testset.show(idx)
+            print("Tensor size of {}/{}/{}".format(root, ver, stage))
+            print("\tsrc:", sample["src"].shape,
+                    "tar:", sample["tar"].shape,)

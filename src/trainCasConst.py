@@ -88,8 +88,8 @@ class CasSRC(object):
         # image blurring by opt.up
         self.real_BA = F.interpolate(
             self.real_BC, scale_factor=1./self.opt.up, mode="bilinear")
-#         self.real_BA = F.interpolate(
-#             self.real_BA, scale_factor=self.opt.up, mode="nearest")
+        self.real_BA = F.interpolate(
+            self.real_BA, scale_factor=self.opt.up, mode="bilinear")
         self.fake_BC = self.netG_A2C(self.real_BA)
 #         print("realB =>", self.real_B.size())
 #         print("realBA =>", self.real_BA.size())
@@ -101,8 +101,9 @@ class CasSRC(object):
 #         print("fakeBB =>", self.fake_BB.size())
 
     def transfer(self, realA):
-        self.real_A = F.interpolate(
-            realA, scale_factor=1./self.opt.up, mode="bilinear")
+#         self.real_A = F.interpolate(
+#             realA, scale_factor=1./self.opt.up, mode="bilinear")
+        self.real_A = realA
         self.netG_A2C.eval()
         self.netG_C2B.eval()
         self.fake_AC = self.netG_A2C(self.real_A.detach())
@@ -223,4 +224,3 @@ if __name__ == '__main__':
             netGB = './checkpoints/%s_C2B_x%d_%04d.pth' % (opt.CModel, opt.up, epoch)
             torch.save(model.netG_A2C.state_dict(), netGA)
             torch.save(model.netG_C2B.state_dict(), netGB)
-#             os.system('python ./src/testCas.py --netGA {} --netGB {}'.format(netGA, netGB))

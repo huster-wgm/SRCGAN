@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+eps = 1e-6
 
 class AE(object):
     """

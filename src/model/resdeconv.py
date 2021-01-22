@@ -56,22 +56,22 @@ def deconv(in_planes, out_planes, ratio="x2"):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, BNmode='IN'):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, BN='GN'):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
-        if BNmode == 'BN':
+        if BN == 'BN':
             self.bn1 = nn.BatchNorm2d(planes)
-        elif BNmode == 'IN':
+        elif BN == 'IN':
             self.bn1 = nn.InstanceNorm2d(planes)
-        elif BNmode == 'GN':
+        elif BN == 'GN':
             self.bn1 = nn.GroupNorm(32, planes)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes)
-        if BNmode == 'BN':
+        if BN == 'BN':
             self.bn2 = nn.BatchNorm2d(planes)
-        elif BNmode == 'IN':
+        elif BN == 'IN':
             self.bn2 = nn.InstanceNorm2d(planes)
-        elif BNmode == 'GN':
+        elif BN == 'GN':
             self.bn2 = nn.GroupNorm(32, planes)
         self.downsample = downsample
         self.stride = stride
@@ -104,7 +104,7 @@ class ResDeconv(nn.Module):
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    def __init__(self, src_ch=1, tar_ch=3, block=BasicBlock, layers=[2, 2, 2, 2], instance=True):
+    def __init__(self, src_ch=1, tar_ch=3, block=BasicBlock, layers=[2, 2, 2, 2], BN='GN'):
         super(ResDeconv, self).__init__()
         self.src_ch = src_ch
         if isinstance(tar_ch, list):
@@ -112,25 +112,30 @@ class ResDeconv(nn.Module):
         self.inplanes = 64
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
-        self.bn1 = nn.BatchNorm2d(64) if not instance else nn.InstanceNorm2d(64)
+        if BN == 'BN':
+            self.bn1 = nn.BatchNorm2d(64)
+        elif BN == 'IN':
+            self.bn1 = nn.InstanceNorm2d(64)
+        elif BN == 'GN':
+            self.bn1 = nn.GroupNorm(32, 64)
         self.relu = nn.ReLU(inplace=True)
         # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0, ceil_mode=True)
 
-        self.layer1 = self._make_layer(block, 64, layers[0], stride=1, instance=instance)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, instance=instance)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, instance=instance)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, instance=instance)
+        self.layer1 = self._make_layer(block, 64, layers[0], stride=1, BN=BN)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, BN=BN)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, BN=BN)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, BN=BN)
 
         # Left arm
         self.deconv10 = deconv(512, 256, ratio="x2")
         self.inplanes = 256
-        self.upRes1 = self._make_layer(block, 256, layers[2], instance=instance)
+        self.upRes1 = self._make_layer(block, 256, layers[2], stride=1, BN=BN)
         self.deconv11 = deconv(256, 128, ratio="x2")
         self.inplanes = 128
-        self.upRes2 = self._make_layer(block, 128, layers[1], instance=instance)
+        self.upRes2 = self._make_layer(block, 128, layers[1], stride=1, BN=BN)
         self.deconv12 = deconv(128,  64, ratio="x2")
         self.inplanes = 64
-        self.upRes3 = self._make_layer(block, 64, layers[0], instance=instance)
+        self.upRes3 = self._make_layer(block, 64, layers[0], stride=1, BN=BN)
         self.deconv13 = deconv( 64,  64, ratio="x2")
         self.pred = nn.Conv2d(64, tar_ch, kernel_size=3, stride=1, padding=1, bias=False)
 
@@ -141,19 +146,25 @@ class ResDeconv(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, instance=False):
+    def _make_layer(self, block, planes, blocks, stride, BN):
         downsample = None
+        if BN == 'BN':
+            BNlayer = nn.BatchNorm2d(planes * block.expansion)
+        elif BN == 'IN':
+            BNlayer = nn.InstanceNorm2d(planes * block.expansion)
+        elif BN == 'GN':
+            BNlayer = nn.GroupNorm(32, planes * block.expansion)
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
                 conv1x1(self.inplanes, planes * block.expansion, stride),
-                nn.BatchNorm2d(planes * block.expansion) if not instance else nn.InstanceNorm2d(planes * block.expansion),
+                BNlayer,
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
+        layers.append(block(self.inplanes, planes, stride, downsample, BN=BN))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
+            layers.append(block(self.inplanes, planes, BN=BN))
 
         return nn.Sequential(*layers)
 

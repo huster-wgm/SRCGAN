@@ -30,7 +30,7 @@ class SRCNN(torch.nn.Module):
             kernels[1], ou_ch, kernel_size=5, stride=1, padding=2)
 
     def forward(self, x):
-        x = F.interpolate(x, scale_factor=self.up, mode="bilinear")
+#         x = F.interpolate(x, scale_factor=self.up, mode="bilinear")
         x = self.relu(self.conv1(x))
         x = self.relu(self.conv2(x))
         x = self.relu(self.conv3(x))

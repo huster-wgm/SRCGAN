@@ -72,9 +72,10 @@ if __name__ == '__main__':
                  0.7154 * realB[:,1:2,:,:] + \
                  0.0721 * realB[:,2:3,:,:]
         sf = int(checkA[2][1])
-        realBA = nn.functional.interpolate(realBC, scale_factor=1. / sf)
-#         realBA = nn.functional.interpolate(realBA, scale_factor=sf)
-        realAA = nn.functional.interpolate(realA, scale_factor=1. / sf)
+        realBA = nn.functional.interpolate(realBC, scale_factor=1. / sf, mode='bilinear')
+        realBA = nn.functional.interpolate(realBA, scale_factor=sf, mode='bilinear')
+#         realAA = nn.functional.interpolate(realA, scale_factor=1. / sf)
+        realAA = realA
         fake_AB = netG_C2B(netG_A2C(realAA))
         fake_BB = netG_C2B(netG_A2C(realBA))
         # calc performances

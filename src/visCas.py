@@ -37,7 +37,7 @@ def tensor2image(tensor):
     return image
 
 
-def add_barrier(img, spaces=[10, 20]):
+def add_barrier(img, spaces=[5, 10]):
     """
     args:
         img: (ndarray) in [img_rows, img_cols, channels], dtype as unit8
@@ -45,8 +45,8 @@ def add_barrier(img, spaces=[10, 20]):
     return:
         img: (ndarray) processed img
     """
-    img = add_color_bar(img, spaces[0], 255)
-    img = add_color_bar(img, spaces[1], 0)
+    img = add_color_bar(img, spaces[0], 0)
+    img = add_color_bar(img, spaces[1], 255)
     return img
 
 
@@ -85,7 +85,6 @@ if __name__ == '__main__':
     parse.add_argument('--netGA', type=str)
     parse.add_argument('--netGB', type=str)
     parse.add_argument('--threshold', type=float)
-    parse.add_argument('--number', type=int, default=100)
     args = parse.parse_args()
     # Hyperparameters
     opt = params()
@@ -94,8 +93,8 @@ if __name__ == '__main__':
     ### Data preparation
     trainset, valset, testset = load_dataset('Sat2Aerx1')
     ### makedirs
-    save_dirA = './vis/A_'+"_".join([checkA[0], checkA[2], checkA[3]])
-    save_dirB = './vis/B_'+"_".join([checkA[0], checkA[2], checkA[3]])
+    save_dirA = './visResult/A_'+"_".join([checkA[0], checkA[2], checkA[3]])
+    save_dirB = './visResult/B_'+"_".join([checkA[0], checkA[2], checkA[3]])
     if not os.path.exists(save_dirA) or not os.path.exists(save_dirB):
         os.makedirs(save_dirA)
         os.makedirs(save_dirB)
@@ -107,12 +106,11 @@ if __name__ == '__main__':
     netG_C2B.load_state_dict(torch.load(args.netGB))
     netG_A2C.eval()
     netG_C2B.eval()
-    print("Starting test Loop...")
+    print("Starting visualization Loop...")
     # setup data loader
     data_loader = DataLoader(testset, opt.batch_size, num_workers=opt.num_works,
-                             shuffle=True, pin_memory=True, )
+                             shuffle=False, pin_memory=True, )
     evaluator = metrics.PSNR()
-    count = 0
     for idx, sample in enumerate(data_loader):
         realA = sample['src'].to(opt.device)
 #         realA -= 0.5
@@ -132,14 +130,12 @@ if __name__ == '__main__':
         fake_BB = netG_C2B(fake_BC)
         perform = evaluator(fake_BB.detach(), realB.detach()).item()
         if perform > args.threshold:
-            count += 1
             vis_a = patch2vis([realAA, fake_AC, fake_AB, realB])
             vis_b = patch2vis([realBA, fake_BC, fake_BB, realB])
             imsave(save_dirA+'/test_%06d_comp.png' % (idx), vis_a)
             imsave(save_dirB+'/test_%06d_comp.png' % (idx), vis_b)
-            sys.stdout.write('\rSave images %06d (%06d / %06d)' % (idx, count, args.number))
+            sys.stdout.write('\rSave images (%06d / %06d) PSNR : %0.1f' % 
+                             (idx, len(testset), perform))
         else:
             sys.stdout.write('\rSkip images (%06d / %06d) PSNR : %0.1f' % 
                              (idx, len(testset), perform))
-        if count > args.number:
-            break
